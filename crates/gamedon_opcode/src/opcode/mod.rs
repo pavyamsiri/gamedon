@@ -1156,7 +1156,6 @@ impl Instruction {
 }
 
 pub fn disassemble(byte_stream: &[u8]) -> String {
-    use core::fmt::Write;
     let mut buffer = String::new();
 
     let mut it = byte_stream.iter().enumerate();
