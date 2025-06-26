@@ -8,6 +8,7 @@ const ERROR_STYLE: Style = Style::new().red();
 const IMMEDIATE_STYLE: Style = Style::new().magenta();
 const ADDRESS_STYLE: Style = Style::new().bright_magenta();
 const CONDITION_STYLE: Style = Style::new().green();
+const BIT_POSITION_STYLE: Style = Style::new().green();
 
 #[derive(Debug, Clone, Copy)]
 pub enum Condition {
@@ -98,6 +99,65 @@ impl core::fmt::Display for RstAddress {
                 f,
                 "{}",
                 "$0038".if_supports_color(Stream::Stdout, |text| text.style(ADDRESS_STYLE))
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum BitPosition {
+    Bit0,
+    Bit1,
+    Bit2,
+    Bit3,
+    Bit4,
+    Bit5,
+    Bit6,
+    Bit7,
+}
+
+impl core::fmt::Display for BitPosition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bit0 => write!(
+                f,
+                "{}",
+                "0".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
+            ),
+            Self::Bit1 => write!(
+                f,
+                "{}",
+                "1".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
+            ),
+            Self::Bit2 => write!(
+                f,
+                "{}",
+                "2".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
+            ),
+            Self::Bit3 => write!(
+                f,
+                "{}",
+                "3".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
+            ),
+            Self::Bit4 => write!(
+                f,
+                "{}",
+                "4".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
+            ),
+            Self::Bit5 => write!(
+                f,
+                "{}",
+                "5".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
+            ),
+            Self::Bit6 => write!(
+                f,
+                "{}",
+                "6".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
+            ),
+            Self::Bit7 => write!(
+                f,
+                "{}",
+                "7".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
             ),
         }
     }
@@ -323,10 +383,90 @@ pub enum Instruction {
     CpMem16 { src: Reg16 },
     /// Compare the accumulator and an immediate byte.
     CpImm8,
+
+    // Prefix instructions
+    /// Rotate an 8-bit register left. Old bit 7 is stored in the carry flag and the new bit 0.
+    RlcReg8 { reg: Reg8 },
+    /// Rotate a byte at the address given by a 16-bit register left.
+    /// Old bit 7 is stored in the carry flag and the new bit 0.
+    RlcMem16 { reg: Reg16 },
+    /// Rotate an 8-bit register right. Old bit 0 is stored in the carry flag and the new bit 7.
+    RrcReg8 { reg: Reg8 },
+    /// Rotate a byte at the address given by a 16-bit register right.
+    /// Old bit 0 is stored in the carry flag and the new bit 7.
+    RrcMem16 { reg: Reg16 },
+
+    /// Rotate an 8-bit register left. Old bit 7 is stored in the carry flag with the new bit 0 set to the previous carry flag value.
+    RlReg8 { reg: Reg8 },
+    /// Rotate a byte at the address given by a 16-bit register left.
+    /// Old bit 7 is stored in the carry flag with the new bit 0 set to the previous carry flag value.
+    RlMem16 { reg: Reg16 },
+    /// Rotate an 8-bit register right.
+    /// Old bit 0 is stored in the carry flag with the new bit 7 set to the previous carry flag value.
+    RrReg8 { reg: Reg8 },
+    /// Rotate a byte at the address given by a 16-bit register right.
+    /// Old bit 0 is stored in the carry flag with the new bit 7 set to the previous carry flag value.
+    RrMem16 { reg: Reg16 },
+
+    /// Shift an 8-bit register left. Old bit 7 is stored in the carry flag with bit 0 reset.
+    SlaReg8 { reg: Reg8 },
+    /// Shift a byte at the address given by a 16-bit register left.
+    /// Old bit 7 is stored in the carry flag with bit 0 reset.
+    SlaMem16 { reg: Reg16 },
+    /// Shift an 8-bit register right. Old bit 0 is stored in the carry flag with bit 7 unchanged.
+    SraReg8 { reg: Reg8 },
+    /// Shift a byte at the address given by a 16-bit register right.
+    /// Old bit 0 is stored in the carry flag with bit 7 unchanged.
+    SraMem16 { reg: Reg16 },
+
+    /// Swap the upper four bits and the lower four bits of an 8-bit register.
+    SwapReg8 { reg: Reg8 },
+    /// Swap the upper four bits and the lower four bits of a byte at the address given by a 16-bit register.
+    SwapMem16 { reg: Reg16 },
+
+    /// Shift an 8-bit register right. Old bit 0 is stored in the carry flag with bit 7 reset.
+    SrlReg8 { reg: Reg8 },
+    /// Shift a byte at the address given by a 16-bit register right.
+    /// Old bit 0 is stored in the carry flag with bit 7 reset.
+    SrlMem16 { reg: Reg16 },
+
+    // Bit operations
+    /// Test if bit n is set in an 8-bit register.
+    BitReg8 { reg: Reg8, bit: BitPosition },
+    /// Test if bit n is set in the byte at the address given by a 16-bit register.
+    BitMem16 { reg: Reg16, bit: BitPosition },
+    /// Reset bit n is set in an 8-bit register.
+    ResReg8 { reg: Reg8, bit: BitPosition },
+    /// Reset bit n is set in the byte at the address given by a 16-bit register.
+    ResMem16 { reg: Reg16, bit: BitPosition },
+    /// Set bit n is set in an 8-bit register.
+    SetReg8 { reg: Reg8, bit: BitPosition },
+    /// Set bit n is set in the byte at the address given by a 16-bit register.
+    SetMem16 { reg: Reg16, bit: BitPosition },
 }
 
 impl core::fmt::Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        macro_rules! write_reg_op {
+            ($name:literal, $reg:expr) => {
+                write!(
+                    f,
+                    "{} {}",
+                    $name.if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE),),
+                    $reg
+                )
+            };
+            ($name:literal, $reg:expr, $bit:expr) => {
+                write!(
+                    f,
+                    "{} {} {}",
+                    $name.if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE),),
+                    $bit,
+                    $reg
+                )
+            };
+        }
+
         let acc = Reg8::A;
         match self {
             Instruction::Nop => write!(
@@ -724,6 +864,28 @@ impl core::fmt::Display for Instruction {
                 "{} {acc}, imm8",
                 "cp".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
             ),
+            Instruction::RlcReg8 { reg } => write_reg_op!("rlc", reg),
+            Instruction::RlcMem16 { reg } => write_reg_op!("rlc", reg),
+            Instruction::RrcReg8 { reg } => write_reg_op!("rrc", reg),
+            Instruction::RrcMem16 { reg } => write_reg_op!("rrc", reg),
+            Instruction::RlReg8 { reg } => write_reg_op!("rl", reg),
+            Instruction::RlMem16 { reg } => write_reg_op!("rl", reg),
+            Instruction::RrReg8 { reg } => write_reg_op!("rr", reg),
+            Instruction::RrMem16 { reg } => write_reg_op!("rr", reg),
+            Instruction::SlaReg8 { reg } => write_reg_op!("sla", reg),
+            Instruction::SlaMem16 { reg } => write_reg_op!("sla", reg),
+            Instruction::SraReg8 { reg } => write_reg_op!("sra", reg),
+            Instruction::SraMem16 { reg } => write_reg_op!("sra", reg),
+            Instruction::SwapReg8 { reg } => write_reg_op!("swap", reg),
+            Instruction::SwapMem16 { reg } => write_reg_op!("swap", reg),
+            Instruction::SrlReg8 { reg } => write_reg_op!("srl", reg),
+            Instruction::SrlMem16 { reg } => write_reg_op!("srl", reg),
+            Instruction::BitReg8 { reg, bit } => write_reg_op!("bit", reg, bit),
+            Instruction::BitMem16 { reg, bit } => write_reg_op!("bit", reg, bit),
+            Instruction::ResReg8 { reg, bit } => write_reg_op!("res", reg, bit),
+            Instruction::ResMem16 { reg, bit } => write_reg_op!("res", reg, bit),
+            Instruction::SetReg8 { reg, bit } => write_reg_op!("set", reg, bit),
+            Instruction::SetMem16 { reg, bit } => write_reg_op!("set", reg, bit),
         }
     }
 }
@@ -1433,10 +1595,34 @@ mod _opcode_macros {
             }
         };
     }
+
+    macro_rules! prefix_reg_op {
+        ($op:ident, reg $reg:ident) => {
+            Instruction::$op { reg: Reg8::$reg }
+        };
+        ($op:ident, mem $reg:ident) => {
+            Instruction::$op { reg: Reg16::$reg }
+        };
+    }
+
+    macro_rules! prefix_bit_op {
+        ($op:ident, reg $reg:ident, pos $pos:ident) => {
+            Instruction::$op {
+                reg: Reg8::$reg,
+                bit: BitPosition::$pos,
+            }
+        };
+        ($op:ident, mem $reg:ident, pos $pos:ident) => {
+            Instruction::$op {
+                reg: Reg16::$reg,
+                bit: BitPosition::$pos,
+            }
+        };
+    }
 }
 
 impl Instruction {
-    pub const fn decode(value: u8) -> Instruction {
+    pub const fn decode_no_prefix(value: u8) -> Instruction {
         match value {
             // loads
             // 0xX1: 16 bit loads
@@ -1733,6 +1919,287 @@ impl Instruction {
             }
         }
     }
+
+    pub const fn decode_prefix(value: u8) -> Instruction {
+        match value {
+            // rlc
+            0x00 => prefix_reg_op!(RlcReg8, reg B),
+            0x01 => prefix_reg_op!(RlcReg8, reg C),
+            0x02 => prefix_reg_op!(RlcReg8, reg D),
+            0x03 => prefix_reg_op!(RlcReg8, reg E),
+            0x04 => prefix_reg_op!(RlcReg8, reg H),
+            0x05 => prefix_reg_op!(RlcReg8, reg L),
+            0x06 => prefix_reg_op!(RlcMem16, mem HL),
+            0x07 => prefix_reg_op!(RlcReg8, reg A),
+            // rrc
+            0x08 => prefix_reg_op!(RrcReg8, reg B),
+            0x09 => prefix_reg_op!(RrcReg8, reg C),
+            0x0A => prefix_reg_op!(RrcReg8, reg D),
+            0x0B => prefix_reg_op!(RrcReg8, reg E),
+            0x0C => prefix_reg_op!(RrcReg8, reg H),
+            0x0D => prefix_reg_op!(RrcReg8, reg L),
+            0x0E => prefix_reg_op!(RrcMem16, mem HL),
+            0x0F => prefix_reg_op!(RrcReg8, reg A),
+            // rl
+            0x10 => prefix_reg_op!(RlReg8, reg B),
+            0x11 => prefix_reg_op!(RlReg8, reg C),
+            0x12 => prefix_reg_op!(RlReg8, reg D),
+            0x13 => prefix_reg_op!(RlReg8, reg E),
+            0x14 => prefix_reg_op!(RlReg8, reg H),
+            0x15 => prefix_reg_op!(RlReg8, reg L),
+            0x16 => prefix_reg_op!(RlMem16, mem HL),
+            0x17 => prefix_reg_op!(RlReg8, reg A),
+            // rr
+            0x18 => prefix_reg_op!(RrReg8, reg B),
+            0x19 => prefix_reg_op!(RrReg8, reg C),
+            0x1A => prefix_reg_op!(RrReg8, reg D),
+            0x1B => prefix_reg_op!(RrReg8, reg E),
+            0x1C => prefix_reg_op!(RrReg8, reg H),
+            0x1D => prefix_reg_op!(RrReg8, reg L),
+            0x1E => prefix_reg_op!(RrMem16, mem HL),
+            0x1F => prefix_reg_op!(RrReg8, reg A),
+            // sla
+            0x20 => prefix_reg_op!(SlaReg8, reg B),
+            0x21 => prefix_reg_op!(SlaReg8, reg C),
+            0x22 => prefix_reg_op!(SlaReg8, reg D),
+            0x23 => prefix_reg_op!(SlaReg8, reg E),
+            0x24 => prefix_reg_op!(SlaReg8, reg H),
+            0x25 => prefix_reg_op!(SlaReg8, reg L),
+            0x26 => prefix_reg_op!(SlaMem16, mem HL),
+            0x27 => prefix_reg_op!(SlaReg8, reg A),
+            // sra
+            0x28 => prefix_reg_op!(SraReg8, reg B),
+            0x29 => prefix_reg_op!(SraReg8, reg C),
+            0x2A => prefix_reg_op!(SraReg8, reg D),
+            0x2B => prefix_reg_op!(SraReg8, reg E),
+            0x2C => prefix_reg_op!(SraReg8, reg H),
+            0x2D => prefix_reg_op!(SraReg8, reg L),
+            0x2E => prefix_reg_op!(SraMem16, mem HL),
+            0x2F => prefix_reg_op!(SraReg8, reg A),
+            // swap
+            0x30 => prefix_reg_op!(SwapReg8, reg B),
+            0x31 => prefix_reg_op!(SwapReg8, reg C),
+            0x32 => prefix_reg_op!(SwapReg8, reg D),
+            0x33 => prefix_reg_op!(SwapReg8, reg E),
+            0x34 => prefix_reg_op!(SwapReg8, reg H),
+            0x35 => prefix_reg_op!(SwapReg8, reg L),
+            0x36 => prefix_reg_op!(SwapMem16, mem HL),
+            0x37 => prefix_reg_op!(SwapReg8, reg A),
+            // srl
+            0x38 => prefix_reg_op!(SrlReg8, reg B),
+            0x39 => prefix_reg_op!(SrlReg8, reg C),
+            0x3A => prefix_reg_op!(SrlReg8, reg D),
+            0x3B => prefix_reg_op!(SrlReg8, reg E),
+            0x3C => prefix_reg_op!(SrlReg8, reg H),
+            0x3D => prefix_reg_op!(SrlReg8, reg L),
+            0x3E => prefix_reg_op!(SrlMem16, mem HL),
+            0x3F => prefix_reg_op!(SrlReg8, reg A),
+            // bit 0 and 1
+            0x40 => prefix_bit_op!(BitReg8, reg B, pos Bit0),
+            0x41 => prefix_bit_op!(BitReg8, reg C, pos Bit0),
+            0x42 => prefix_bit_op!(BitReg8, reg D, pos Bit0),
+            0x43 => prefix_bit_op!(BitReg8, reg E, pos Bit0),
+            0x44 => prefix_bit_op!(BitReg8, reg H, pos Bit0),
+            0x45 => prefix_bit_op!(BitReg8, reg L, pos Bit0),
+            0x46 => prefix_bit_op!(BitMem16, mem HL, pos Bit0),
+            0x47 => prefix_bit_op!(BitReg8, reg A, pos Bit0),
+            0x48 => prefix_bit_op!(BitReg8, reg B, pos Bit1),
+            0x49 => prefix_bit_op!(BitReg8, reg C, pos Bit1),
+            0x4A => prefix_bit_op!(BitReg8, reg D, pos Bit1),
+            0x4B => prefix_bit_op!(BitReg8, reg E, pos Bit1),
+            0x4C => prefix_bit_op!(BitReg8, reg H, pos Bit1),
+            0x4D => prefix_bit_op!(BitReg8, reg L, pos Bit1),
+            0x4E => prefix_bit_op!(BitMem16, mem HL, pos Bit1),
+            0x4F => prefix_bit_op!(BitReg8, reg A, pos Bit1),
+            // bit 2 and 3
+            0x50 => prefix_bit_op!(BitReg8, reg B, pos Bit2),
+            0x51 => prefix_bit_op!(BitReg8, reg C, pos Bit2),
+            0x52 => prefix_bit_op!(BitReg8, reg D, pos Bit2),
+            0x53 => prefix_bit_op!(BitReg8, reg E, pos Bit2),
+            0x54 => prefix_bit_op!(BitReg8, reg H, pos Bit2),
+            0x55 => prefix_bit_op!(BitReg8, reg L, pos Bit2),
+            0x56 => prefix_bit_op!(BitMem16, mem HL, pos Bit2),
+            0x57 => prefix_bit_op!(BitReg8, reg A, pos Bit2),
+            0x58 => prefix_bit_op!(BitReg8, reg B, pos Bit3),
+            0x59 => prefix_bit_op!(BitReg8, reg C, pos Bit3),
+            0x5A => prefix_bit_op!(BitReg8, reg D, pos Bit3),
+            0x5B => prefix_bit_op!(BitReg8, reg E, pos Bit3),
+            0x5C => prefix_bit_op!(BitReg8, reg H, pos Bit3),
+            0x5D => prefix_bit_op!(BitReg8, reg L, pos Bit3),
+            0x5E => prefix_bit_op!(BitMem16, mem HL, pos Bit3),
+            0x5F => prefix_bit_op!(BitReg8, reg A, pos Bit3),
+            // bit 4 and 5
+            0x60 => prefix_bit_op!(BitReg8, reg B, pos Bit4),
+            0x61 => prefix_bit_op!(BitReg8, reg C, pos Bit4),
+            0x62 => prefix_bit_op!(BitReg8, reg D, pos Bit4),
+            0x63 => prefix_bit_op!(BitReg8, reg E, pos Bit4),
+            0x64 => prefix_bit_op!(BitReg8, reg H, pos Bit4),
+            0x65 => prefix_bit_op!(BitReg8, reg L, pos Bit4),
+            0x66 => prefix_bit_op!(BitMem16, mem HL, pos Bit4),
+            0x67 => prefix_bit_op!(BitReg8, reg A, pos Bit4),
+            0x68 => prefix_bit_op!(BitReg8, reg B, pos Bit5),
+            0x69 => prefix_bit_op!(BitReg8, reg C, pos Bit5),
+            0x6A => prefix_bit_op!(BitReg8, reg D, pos Bit5),
+            0x6B => prefix_bit_op!(BitReg8, reg E, pos Bit5),
+            0x6C => prefix_bit_op!(BitReg8, reg H, pos Bit5),
+            0x6D => prefix_bit_op!(BitReg8, reg L, pos Bit5),
+            0x6E => prefix_bit_op!(BitMem16, mem HL, pos Bit5),
+            0x6F => prefix_bit_op!(BitReg8, reg A, pos Bit5),
+            // bit 6 and 7
+            0x70 => prefix_bit_op!(BitReg8, reg B, pos Bit6),
+            0x71 => prefix_bit_op!(BitReg8, reg C, pos Bit6),
+            0x72 => prefix_bit_op!(BitReg8, reg D, pos Bit6),
+            0x73 => prefix_bit_op!(BitReg8, reg E, pos Bit6),
+            0x74 => prefix_bit_op!(BitReg8, reg H, pos Bit6),
+            0x75 => prefix_bit_op!(BitReg8, reg L, pos Bit6),
+            0x76 => prefix_bit_op!(BitMem16, mem HL, pos Bit6),
+            0x77 => prefix_bit_op!(BitReg8, reg A, pos Bit6),
+            0x78 => prefix_bit_op!(BitReg8, reg B, pos Bit7),
+            0x79 => prefix_bit_op!(BitReg8, reg C, pos Bit7),
+            0x7A => prefix_bit_op!(BitReg8, reg D, pos Bit7),
+            0x7B => prefix_bit_op!(BitReg8, reg E, pos Bit7),
+            0x7C => prefix_bit_op!(BitReg8, reg H, pos Bit7),
+            0x7D => prefix_bit_op!(BitReg8, reg L, pos Bit7),
+            0x7E => prefix_bit_op!(BitMem16, mem HL, pos Bit7),
+            0x7F => prefix_bit_op!(BitReg8, reg A, pos Bit7),
+            // reset 0 and 1
+            0x80 => prefix_bit_op!(ResReg8, reg B, pos Bit0),
+            0x81 => prefix_bit_op!(ResReg8, reg C, pos Bit0),
+            0x82 => prefix_bit_op!(ResReg8, reg D, pos Bit0),
+            0x83 => prefix_bit_op!(ResReg8, reg E, pos Bit0),
+            0x84 => prefix_bit_op!(ResReg8, reg H, pos Bit0),
+            0x85 => prefix_bit_op!(ResReg8, reg L, pos Bit0),
+            0x86 => prefix_bit_op!(ResMem16, mem HL, pos Bit0),
+            0x87 => prefix_bit_op!(ResReg8, reg A, pos Bit0),
+            0x88 => prefix_bit_op!(ResReg8, reg B, pos Bit1),
+            0x89 => prefix_bit_op!(ResReg8, reg C, pos Bit1),
+            0x8A => prefix_bit_op!(ResReg8, reg D, pos Bit1),
+            0x8B => prefix_bit_op!(ResReg8, reg E, pos Bit1),
+            0x8C => prefix_bit_op!(ResReg8, reg H, pos Bit1),
+            0x8D => prefix_bit_op!(ResReg8, reg L, pos Bit1),
+            0x8E => prefix_bit_op!(ResMem16, mem HL, pos Bit1),
+            0x8F => prefix_bit_op!(ResReg8, reg A, pos Bit1),
+            // reset 2 and 3
+            0x90 => prefix_bit_op!(ResReg8, reg B, pos Bit2),
+            0x91 => prefix_bit_op!(ResReg8, reg C, pos Bit2),
+            0x92 => prefix_bit_op!(ResReg8, reg D, pos Bit2),
+            0x93 => prefix_bit_op!(ResReg8, reg E, pos Bit2),
+            0x94 => prefix_bit_op!(ResReg8, reg H, pos Bit2),
+            0x95 => prefix_bit_op!(ResReg8, reg L, pos Bit2),
+            0x96 => prefix_bit_op!(ResMem16, mem HL, pos Bit2),
+            0x97 => prefix_bit_op!(ResReg8, reg A, pos Bit2),
+            0x98 => prefix_bit_op!(ResReg8, reg B, pos Bit3),
+            0x99 => prefix_bit_op!(ResReg8, reg C, pos Bit3),
+            0x9A => prefix_bit_op!(ResReg8, reg D, pos Bit3),
+            0x9B => prefix_bit_op!(ResReg8, reg E, pos Bit3),
+            0x9C => prefix_bit_op!(ResReg8, reg H, pos Bit3),
+            0x9D => prefix_bit_op!(ResReg8, reg L, pos Bit3),
+            0x9E => prefix_bit_op!(ResMem16, mem HL, pos Bit3),
+            0x9F => prefix_bit_op!(ResReg8, reg A, pos Bit3),
+            // reset 4 and 5
+            0xA0 => prefix_bit_op!(ResReg8, reg B, pos Bit4),
+            0xA1 => prefix_bit_op!(ResReg8, reg C, pos Bit4),
+            0xA2 => prefix_bit_op!(ResReg8, reg D, pos Bit4),
+            0xA3 => prefix_bit_op!(ResReg8, reg E, pos Bit4),
+            0xA4 => prefix_bit_op!(ResReg8, reg H, pos Bit4),
+            0xA5 => prefix_bit_op!(ResReg8, reg L, pos Bit4),
+            0xA6 => prefix_bit_op!(ResMem16, mem HL, pos Bit4),
+            0xA7 => prefix_bit_op!(ResReg8, reg A, pos Bit4),
+            0xA8 => prefix_bit_op!(ResReg8, reg B, pos Bit5),
+            0xA9 => prefix_bit_op!(ResReg8, reg C, pos Bit5),
+            0xAA => prefix_bit_op!(ResReg8, reg D, pos Bit5),
+            0xAB => prefix_bit_op!(ResReg8, reg E, pos Bit5),
+            0xAC => prefix_bit_op!(ResReg8, reg H, pos Bit5),
+            0xAD => prefix_bit_op!(ResReg8, reg L, pos Bit5),
+            0xAE => prefix_bit_op!(ResMem16, mem HL, pos Bit5),
+            0xAF => prefix_bit_op!(ResReg8, reg A, pos Bit5),
+            // reset 6 and 7
+            0xB0 => prefix_bit_op!(ResReg8, reg B, pos Bit6),
+            0xB1 => prefix_bit_op!(ResReg8, reg C, pos Bit6),
+            0xB2 => prefix_bit_op!(ResReg8, reg D, pos Bit6),
+            0xB3 => prefix_bit_op!(ResReg8, reg E, pos Bit6),
+            0xB4 => prefix_bit_op!(ResReg8, reg H, pos Bit6),
+            0xB5 => prefix_bit_op!(ResReg8, reg L, pos Bit6),
+            0xB6 => prefix_bit_op!(ResMem16, mem HL, pos Bit6),
+            0xB7 => prefix_bit_op!(ResReg8, reg A, pos Bit6),
+            0xB8 => prefix_bit_op!(ResReg8, reg B, pos Bit7),
+            0xB9 => prefix_bit_op!(ResReg8, reg C, pos Bit7),
+            0xBA => prefix_bit_op!(ResReg8, reg D, pos Bit7),
+            0xBB => prefix_bit_op!(ResReg8, reg E, pos Bit7),
+            0xBC => prefix_bit_op!(ResReg8, reg H, pos Bit7),
+            0xBD => prefix_bit_op!(ResReg8, reg L, pos Bit7),
+            0xBE => prefix_bit_op!(ResMem16, mem HL, pos Bit7),
+            0xBF => prefix_bit_op!(ResReg8, reg A, pos Bit7),
+            // set 0 and 1
+            0xC0 => prefix_bit_op!(SetReg8, reg B, pos Bit0),
+            0xC1 => prefix_bit_op!(SetReg8, reg C, pos Bit0),
+            0xC2 => prefix_bit_op!(SetReg8, reg D, pos Bit0),
+            0xC3 => prefix_bit_op!(SetReg8, reg E, pos Bit0),
+            0xC4 => prefix_bit_op!(SetReg8, reg H, pos Bit0),
+            0xC5 => prefix_bit_op!(SetReg8, reg L, pos Bit0),
+            0xC6 => prefix_bit_op!(SetMem16, mem HL, pos Bit0),
+            0xC7 => prefix_bit_op!(SetReg8, reg A, pos Bit0),
+            0xC8 => prefix_bit_op!(SetReg8, reg B, pos Bit1),
+            0xC9 => prefix_bit_op!(SetReg8, reg C, pos Bit1),
+            0xCA => prefix_bit_op!(SetReg8, reg D, pos Bit1),
+            0xCB => prefix_bit_op!(SetReg8, reg E, pos Bit1),
+            0xCC => prefix_bit_op!(SetReg8, reg H, pos Bit1),
+            0xCD => prefix_bit_op!(SetReg8, reg L, pos Bit1),
+            0xCE => prefix_bit_op!(SetMem16, mem HL, pos Bit1),
+            0xCF => prefix_bit_op!(SetReg8, reg A, pos Bit1),
+            // set 2 and 3
+            0xD0 => prefix_bit_op!(SetReg8, reg B, pos Bit2),
+            0xD1 => prefix_bit_op!(SetReg8, reg C, pos Bit2),
+            0xD2 => prefix_bit_op!(SetReg8, reg D, pos Bit2),
+            0xD3 => prefix_bit_op!(SetReg8, reg E, pos Bit2),
+            0xD4 => prefix_bit_op!(SetReg8, reg H, pos Bit2),
+            0xD5 => prefix_bit_op!(SetReg8, reg L, pos Bit2),
+            0xD6 => prefix_bit_op!(SetMem16, mem HL, pos Bit2),
+            0xD7 => prefix_bit_op!(SetReg8, reg A, pos Bit2),
+            0xD8 => prefix_bit_op!(SetReg8, reg B, pos Bit3),
+            0xD9 => prefix_bit_op!(SetReg8, reg C, pos Bit3),
+            0xDA => prefix_bit_op!(SetReg8, reg D, pos Bit3),
+            0xDB => prefix_bit_op!(SetReg8, reg E, pos Bit3),
+            0xDC => prefix_bit_op!(SetReg8, reg H, pos Bit3),
+            0xDD => prefix_bit_op!(SetReg8, reg L, pos Bit3),
+            0xDE => prefix_bit_op!(SetMem16, mem HL, pos Bit3),
+            0xDF => prefix_bit_op!(SetReg8, reg A, pos Bit3),
+            // set 4 and 5
+            0xE0 => prefix_bit_op!(SetReg8, reg B, pos Bit4),
+            0xE1 => prefix_bit_op!(SetReg8, reg C, pos Bit4),
+            0xE2 => prefix_bit_op!(SetReg8, reg D, pos Bit4),
+            0xE3 => prefix_bit_op!(SetReg8, reg E, pos Bit4),
+            0xE4 => prefix_bit_op!(SetReg8, reg H, pos Bit4),
+            0xE5 => prefix_bit_op!(SetReg8, reg L, pos Bit4),
+            0xE6 => prefix_bit_op!(SetMem16, mem HL, pos Bit4),
+            0xE7 => prefix_bit_op!(SetReg8, reg A, pos Bit4),
+            0xE8 => prefix_bit_op!(SetReg8, reg B, pos Bit5),
+            0xE9 => prefix_bit_op!(SetReg8, reg C, pos Bit5),
+            0xEA => prefix_bit_op!(SetReg8, reg D, pos Bit5),
+            0xEB => prefix_bit_op!(SetReg8, reg E, pos Bit5),
+            0xEC => prefix_bit_op!(SetReg8, reg H, pos Bit5),
+            0xED => prefix_bit_op!(SetReg8, reg L, pos Bit5),
+            0xEE => prefix_bit_op!(SetMem16, mem HL, pos Bit5),
+            0xEF => prefix_bit_op!(SetReg8, reg A, pos Bit5),
+            // set 6 and 7
+            0xF0 => prefix_bit_op!(SetReg8, reg B, pos Bit6),
+            0xF1 => prefix_bit_op!(SetReg8, reg C, pos Bit6),
+            0xF2 => prefix_bit_op!(SetReg8, reg D, pos Bit6),
+            0xF3 => prefix_bit_op!(SetReg8, reg E, pos Bit6),
+            0xF4 => prefix_bit_op!(SetReg8, reg H, pos Bit6),
+            0xF5 => prefix_bit_op!(SetReg8, reg L, pos Bit6),
+            0xF6 => prefix_bit_op!(SetMem16, mem HL, pos Bit6),
+            0xF7 => prefix_bit_op!(SetReg8, reg A, pos Bit6),
+            0xF8 => prefix_bit_op!(SetReg8, reg B, pos Bit7),
+            0xF9 => prefix_bit_op!(SetReg8, reg C, pos Bit7),
+            0xFA => prefix_bit_op!(SetReg8, reg D, pos Bit7),
+            0xFB => prefix_bit_op!(SetReg8, reg E, pos Bit7),
+            0xFC => prefix_bit_op!(SetReg8, reg H, pos Bit7),
+            0xFD => prefix_bit_op!(SetReg8, reg L, pos Bit7),
+            0xFE => prefix_bit_op!(SetMem16, mem HL, pos Bit7),
+            0xFF => prefix_bit_op!(SetReg8, reg A, pos Bit7),
+        }
+    }
 }
 
 pub fn disassemble(byte_stream: &[u8]) -> String {
@@ -1740,16 +2207,33 @@ pub fn disassemble(byte_stream: &[u8]) -> String {
 
     let mut it = byte_stream.iter().copied().enumerate();
 
+    let mut is_prefix = false;
+    let mut first_nop = true;
     loop {
         let Some((address, byte)) = it.next() else {
             break;
         };
         assert!(address < u16::MAX as usize + 1, "{address}");
 
-        let inst = Instruction::decode(byte);
+        let inst = if is_prefix {
+            Instruction::decode_prefix(byte)
+        } else {
+            Instruction::decode_no_prefix(byte)
+        };
+
+        is_prefix = matches!(inst, Instruction::Prefix);
+        if is_prefix {
+            continue;
+        }
 
         if matches!(inst, Instruction::Nop) {
-            continue;
+            if first_nop {
+                first_nop = false;
+            } else {
+                continue;
+            }
+        } else {
+            first_nop = true;
         }
 
         write!(buffer, "{address:#06X}: ").unwrap();
