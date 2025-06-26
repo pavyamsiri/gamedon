@@ -1,3 +1,8 @@
+use owo_colors::{OwoColorize, Stream, Style};
+use owo_colors::{SupportsColorsDisplay, colors::*};
+
+const REGISTER_STYLE: Style = Style::new().blue();
+
 #[derive(Debug, Clone, Copy)]
 pub enum Reg8 {
     B,
@@ -12,13 +17,41 @@ pub enum Reg8 {
 impl core::fmt::Display for Reg8 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Reg8::B => write!(f, "B"),
-            Reg8::C => write!(f, "C"),
-            Reg8::D => write!(f, "D"),
-            Reg8::E => write!(f, "E"),
-            Reg8::H => write!(f, "H"),
-            Reg8::L => write!(f, "L"),
-            Reg8::A => write!(f, "A"),
+            Self::B => write!(
+                f,
+                "{}",
+                "B".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
+            Self::C => write!(
+                f,
+                "{}",
+                "C".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
+            Self::D => write!(
+                f,
+                "{}",
+                "D".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
+            Self::E => write!(
+                f,
+                "{}",
+                "E".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
+            Self::H => write!(
+                f,
+                "{}",
+                "H".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
+            Self::L => write!(
+                f,
+                "{}",
+                "L".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
+            Self::A => write!(
+                f,
+                "{}",
+                "A".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
         }
     }
 }
@@ -35,11 +68,31 @@ pub enum Reg16 {
 impl core::fmt::Display for Reg16 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Reg16::BC => write!(f, "BC"),
-            Reg16::DE => write!(f, "DE"),
-            Reg16::HL => write!(f, "HL"),
-            Reg16::SP => write!(f, "SP"),
-            Reg16::AF => write!(f, "AF"),
+            Reg16::BC => write!(
+                f,
+                "{}",
+                "BC".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
+            Reg16::DE => write!(
+                f,
+                "{}",
+                "DE".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
+            Reg16::HL => write!(
+                f,
+                "{}",
+                "HL".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
+            Reg16::SP => write!(
+                f,
+                "{}",
+                "SP".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
+            Reg16::AF => write!(
+                f,
+                "{}",
+                "AF".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
         }
     }
 }
