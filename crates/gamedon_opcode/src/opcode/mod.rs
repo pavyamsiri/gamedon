@@ -237,10 +237,10 @@ pub enum Instruction {
     LdDecMem16Reg8 { dst: Reg16, src: Reg8 },
     /// Load byte from address given by 16-bit register into 8-bit register,
     /// then increment the 16-bit register.
-    LdIncReg8MemR16 { dst: Reg8, src: Reg16 },
+    LdIncReg8Mem16 { dst: Reg8, src: Reg16 },
     /// Load byte from address given by 16-bit register into 8-bit register,
     /// then decrement the 16-bit register.
-    LdDecReg8MemR16 { dst: Reg8, src: Reg16 },
+    LdDecReg8Mem16 { dst: Reg8, src: Reg16 },
 
     // 16-bit loads
     /// Load immediate word into 16-bit register.
@@ -619,12 +619,12 @@ impl core::fmt::Display for Instruction {
                 "{} ({dst}) {src}",
                 "ldd".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
             ),
-            Instruction::LdIncReg8MemR16 { dst, src } => write!(
+            Instruction::LdIncReg8Mem16 { dst, src } => write!(
                 f,
                 "{} {dst} ({src})",
                 "ldi".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
             ),
-            Instruction::LdDecReg8MemR16 { dst, src } => write!(
+            Instruction::LdDecReg8Mem16 { dst, src } => write!(
                 f,
                 "{} {dst} ({src})",
                 "ldd".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
@@ -1360,13 +1360,13 @@ mod _opcode_macros {
             }
         };
         (reg $dst:ident, mem16 $src:ident+) => {
-            Instruction::LdIncReg8MemR16 {
+            Instruction::LdIncReg8Mem16 {
                 dst: Reg8::$dst,
                 src: Reg16::$src,
             }
         };
         (reg $dst:ident, mem16 $src:ident-) => {
-            Instruction::LdDecReg8MemR16 {
+            Instruction::LdDecReg8Mem16 {
                 dst: Reg8::$dst,
                 src: Reg16::$src,
             }

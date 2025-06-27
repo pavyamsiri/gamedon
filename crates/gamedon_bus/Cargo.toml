@@ -1,13 +1,10 @@
 [package]
-name = "gamedon_cpu"
+name = "gamedon_bus"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 thiserror = { workspace = true }
-
-gamedon_bus = { workspace = true }
-gamedon_opcode = { workspace = true }
 
 [lints]
 workspace = true
