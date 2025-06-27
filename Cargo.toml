@@ -1,3 +1,6 @@
 [workspace]
-members = ["crates/gamedon_opcode"]
+members = [ "crates/gamedon_cpu", "crates/gamedon_opcode"]
 resolver = "2"
+
+[workspace.dependencies]
+owo-colors = { version = "4.2.2", features = ["supports-colors"] }

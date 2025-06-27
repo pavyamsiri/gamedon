@@ -3,6 +3,10 @@
 version = 4
 
 [[package]]
+name = "gamedon_cpu"
+version = "0.1.0"
+
+[[package]]
 name = "gamedon_opcode"
 version = "0.1.0"
 dependencies = [
