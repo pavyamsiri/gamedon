@@ -116,6 +116,22 @@ pub enum BitPosition {
     Bit7,
 }
 
+impl BitPosition {
+    #[inline]
+    pub const fn get_shift_amount(self) -> u8 {
+        match self {
+            Self::Bit0 => 0,
+            Self::Bit1 => 1,
+            Self::Bit2 => 2,
+            Self::Bit3 => 3,
+            Self::Bit4 => 4,
+            Self::Bit5 => 5,
+            Self::Bit6 => 6,
+            Self::Bit7 => 7,
+        }
+    }
+}
+
 impl core::fmt::Display for BitPosition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

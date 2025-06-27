@@ -1,7 +1,12 @@
+mod alu;
+mod bit;
 mod load;
+mod rotate;
 
+use alu::WithCarry;
 use gamedon_bus::{MemoryBus, ReadByteError, WriteByteError};
 use gamedon_opcode::{Instruction, Reg8, Reg16, Registers};
+use rotate::ShiftOption;
 use thiserror::Error;
 
 /// The number of clock cycles in a machine cycle.
@@ -106,17 +111,29 @@ impl Cpu {
                 // TODO(pavyamsiri): Stop is not halt but it is more complicated so leave it until later
                 Ok(self.halt())
             }
+            Instruction::Invalid => todo!("invalid instruction has specific behaviour"),
             Instruction::Ei => Ok(self.ei()),
             Instruction::Di => Ok(self.di()),
-            Instruction::Daa => todo!(),
+            Instruction::Daa => Ok(self.daa()),
             Instruction::Scf => Ok(self.scf()),
             Instruction::Ccf => Ok(self.ccf()),
             Instruction::Cpl => Ok(self.cpl()),
-            Instruction::Rlca => todo!(),
-            Instruction::Rla => todo!(),
-            Instruction::Rrca => todo!(),
-            Instruction::Rra => todo!(),
-            Instruction::Invalid => todo!("invalid instruction has specific behaviour"),
+            Instruction::Rlca => {
+                self.rotate_left_reg8(Reg8::A, WithCarry::No);
+                Ok((NextPc::Relative(1), ONE_M_STATE))
+            }
+            Instruction::Rla => {
+                self.rotate_left_reg8(Reg8::A, WithCarry::Yes);
+                Ok((NextPc::Relative(1), ONE_M_STATE))
+            }
+            Instruction::Rrca => {
+                self.rotate_right_reg8(Reg8::A, WithCarry::No);
+                Ok((NextPc::Relative(1), ONE_M_STATE))
+            }
+            Instruction::Rra => {
+                self.rotate_right_reg8(Reg8::A, WithCarry::Yes);
+                Ok((NextPc::Relative(1), ONE_M_STATE))
+            }
             Instruction::LdReg8Reg8 { dst, src } => Ok(self.ld_reg8_reg8(dst, src)),
             Instruction::LdReg8Mem16 { dst, src } => self.ld_reg8_mem16(dst, src, bus),
             Instruction::LdReg8Imm8 { dst } => self.ld_reg8_imm8(dst, bus),
@@ -144,16 +161,16 @@ impl Cpu {
             Instruction::LdAdr16Reg16 { src } => self.ld_adr16_reg16(src, bus),
             Instruction::LdReg16Reg16 { dst, src } => Ok(self.ld_reg16_reg16(dst, src)),
             Instruction::LdReg16Off8 { dst } => self.ld_reg16_off8(dst, bus),
-            Instruction::IncReg8 { reg } => todo!(),
-            Instruction::DecReg8 { reg } => todo!(),
-            Instruction::IncMem16 { reg } => todo!(),
-            Instruction::DecMem16 { reg } => todo!(),
-            Instruction::IncReg16 { reg } => todo!(),
-            Instruction::DecReg16 { reg } => todo!(),
-            Instruction::AddReg16Reg16 { dst, src } => todo!(),
-            Instruction::AddReg16Off8 { dst } => todo!(),
-            Instruction::PushReg16 { src } => todo!(),
-            Instruction::PopReg16 { dst } => todo!(),
+            Instruction::IncReg8 { reg } => Ok(self.inc_reg8(reg)),
+            Instruction::DecReg8 { reg } => Ok(self.dec_reg8(reg)),
+            Instruction::IncMem16 { reg } => self.inc_mem16(reg, bus),
+            Instruction::DecMem16 { reg } => self.dec_mem16(reg, bus),
+            Instruction::IncReg16 { reg } => Ok(self.inc_reg16(reg)),
+            Instruction::DecReg16 { reg } => Ok(self.dec_reg16(reg)),
+            Instruction::AddReg16Reg16 { dst, src } => Ok(self.add_reg16_reg16(dst, src)),
+            Instruction::AddReg16Off8 { dst } => self.add_reg16_off8(dst, bus),
+            Instruction::PushReg16 { src } => self.push_reg16(src, bus),
+            Instruction::PopReg16 { dst } => self.pop_reg16(dst, bus),
             Instruction::Jr => todo!(),
             Instruction::Jrc { condition } => todo!(),
             Instruction::Jp => todo!(),
@@ -165,52 +182,54 @@ impl Cpu {
             Instruction::Call => todo!(),
             Instruction::Callc { condition } => todo!(),
             Instruction::Rst { target } => todo!(),
-            Instruction::AddReg8 { src } => todo!(),
-            Instruction::AddMem16 { src } => todo!(),
-            Instruction::AddImm8 => todo!(),
-            Instruction::AdcReg8 { src } => todo!(),
-            Instruction::AdcMem16 { src } => todo!(),
-            Instruction::AdcImm8 => todo!(),
-            Instruction::SubReg8 { src } => todo!(),
-            Instruction::SubMem16 { src } => todo!(),
-            Instruction::SubImm8 => todo!(),
-            Instruction::SbcReg8 { src } => todo!(),
-            Instruction::SbcMem16 { src } => todo!(),
-            Instruction::SbcImm8 => todo!(),
-            Instruction::AndReg8 { src } => todo!(),
-            Instruction::AndMem16 { src } => todo!(),
-            Instruction::AndImm8 => todo!(),
-            Instruction::XorReg8 { src } => todo!(),
-            Instruction::XorMem16 { src } => todo!(),
-            Instruction::XorImm8 => todo!(),
-            Instruction::OrReg8 { src } => todo!(),
-            Instruction::OrMem16 { src } => todo!(),
-            Instruction::OrImm8 => todo!(),
-            Instruction::CpReg8 { src } => todo!(),
-            Instruction::CpMem16 { src } => todo!(),
-            Instruction::CpImm8 => todo!(),
-            Instruction::RlcReg8 { reg } => todo!(),
-            Instruction::RlcMem16 { reg } => todo!(),
-            Instruction::RrcReg8 { reg } => todo!(),
-            Instruction::RrcMem16 { reg } => todo!(),
-            Instruction::RlReg8 { reg } => todo!(),
-            Instruction::RlMem16 { reg } => todo!(),
-            Instruction::RrReg8 { reg } => todo!(),
-            Instruction::RrMem16 { reg } => todo!(),
-            Instruction::SlaReg8 { reg } => todo!(),
-            Instruction::SlaMem16 { reg } => todo!(),
-            Instruction::SraReg8 { reg } => todo!(),
-            Instruction::SraMem16 { reg } => todo!(),
-            Instruction::SwapReg8 { reg } => todo!(),
-            Instruction::SwapMem16 { reg } => todo!(),
-            Instruction::SrlReg8 { reg } => todo!(),
-            Instruction::SrlMem16 { reg } => todo!(),
-            Instruction::BitReg8 { reg, bit } => todo!(),
-            Instruction::BitMem16 { reg, bit } => todo!(),
-            Instruction::ResReg8 { reg, bit } => todo!(),
-            Instruction::ResMem16 { reg, bit } => todo!(),
-            Instruction::SetReg8 { reg, bit } => todo!(),
-            Instruction::SetMem16 { reg, bit } => todo!(),
+            Instruction::AddReg8 { src } => Ok(self.add_reg8_reg8(Reg8::A, src, WithCarry::No)),
+            Instruction::AddMem16 { src } => self.add_reg8_mem16(Reg8::A, src, WithCarry::No, bus),
+            Instruction::AddImm8 => self.add_reg8_imm8(Reg8::A, WithCarry::No, bus),
+            Instruction::AdcReg8 { src } => Ok(self.add_reg8_reg8(Reg8::A, src, WithCarry::Yes)),
+            Instruction::AdcMem16 { src } => self.add_reg8_mem16(Reg8::A, src, WithCarry::Yes, bus),
+            Instruction::AdcImm8 => self.add_reg8_imm8(Reg8::A, WithCarry::Yes, bus),
+            Instruction::SubReg8 { src } => Ok(self.sub_reg8_reg8(Reg8::A, src, WithCarry::No)),
+            Instruction::SubMem16 { src } => self.sub_reg8_mem16(Reg8::A, src, WithCarry::No, bus),
+            Instruction::SubImm8 => self.sub_reg8_imm8(Reg8::A, WithCarry::No, bus),
+            Instruction::SbcReg8 { src } => Ok(self.sub_reg8_reg8(Reg8::A, src, WithCarry::Yes)),
+            Instruction::SbcMem16 { src } => self.sub_reg8_mem16(Reg8::A, src, WithCarry::Yes, bus),
+            Instruction::SbcImm8 => self.sub_reg8_imm8(Reg8::A, WithCarry::Yes, bus),
+            Instruction::AndReg8 { src } => Ok(self.and_reg8_reg8(Reg8::A, src)),
+            Instruction::AndMem16 { src } => self.and_reg8_mem16(Reg8::A, src, bus),
+            Instruction::AndImm8 => self.and_reg8_imm8(Reg8::A, bus),
+            Instruction::XorReg8 { src } => Ok(self.xor_reg8_reg8(Reg8::A, src)),
+            Instruction::XorMem16 { src } => self.xor_reg8_mem16(Reg8::A, src, bus),
+            Instruction::XorImm8 => self.xor_reg8_imm8(Reg8::A, bus),
+            Instruction::OrReg8 { src } => Ok(self.or_reg8_reg8(Reg8::A, src)),
+            Instruction::OrMem16 { src } => self.or_reg8_mem16(Reg8::A, src, bus),
+            Instruction::OrImm8 => self.or_reg8_imm8(Reg8::A, bus),
+            Instruction::CpReg8 { src } => Ok(self.cp_reg8_reg8(Reg8::A, src)),
+            Instruction::CpMem16 { src } => self.cp_reg8_mem16(Reg8::A, src, bus),
+            Instruction::CpImm8 => self.cp_reg8_imm8(Reg8::A, bus),
+            Instruction::RlcReg8 { reg } => Ok(self.rotate_left_reg8(reg, WithCarry::No)),
+            Instruction::RlcMem16 { reg } => self.rotate_left_mem16(reg, WithCarry::No, bus),
+            Instruction::RrcReg8 { reg } => Ok(self.rotate_right_reg8(reg, WithCarry::No)),
+            Instruction::RrcMem16 { reg } => self.rotate_right_mem16(reg, WithCarry::No, bus),
+            Instruction::RlReg8 { reg } => Ok(self.rotate_left_reg8(reg, WithCarry::Yes)),
+            Instruction::RlMem16 { reg } => self.rotate_left_mem16(reg, WithCarry::Yes, bus),
+            Instruction::RrReg8 { reg } => Ok(self.rotate_right_reg8(reg, WithCarry::Yes)),
+            Instruction::RrMem16 { reg } => self.rotate_right_mem16(reg, WithCarry::Yes, bus),
+            Instruction::SlaReg8 { reg } => Ok(self.shift_left_reg8(reg)),
+            Instruction::SlaMem16 { reg } => self.shift_left_mem16(reg, bus),
+            Instruction::SraReg8 { reg } => Ok(self.shift_right_reg8(reg, ShiftOption::Unchanged)),
+            Instruction::SraMem16 { reg } => {
+                self.shift_right_mem16(reg, ShiftOption::Unchanged, bus)
+            }
+            Instruction::SrlReg8 { reg } => Ok(self.shift_right_reg8(reg, ShiftOption::Reset)),
+            Instruction::SrlMem16 { reg } => self.shift_right_mem16(reg, ShiftOption::Reset, bus),
+            Instruction::SwapReg8 { reg } => Ok(self.swap_reg8(reg)),
+            Instruction::SwapMem16 { reg } => self.swap_mem16(reg, bus),
+            Instruction::BitReg8 { reg, bit } => Ok(self.bit_reg8(reg, bit)),
+            Instruction::BitMem16 { reg, bit } => self.bit_mem16(reg, bit, bus),
+            Instruction::ResReg8 { reg, bit } => Ok(self.reset_reg8(reg, bit)),
+            Instruction::ResMem16 { reg, bit } => self.reset_mem16(reg, bit, bus),
+            Instruction::SetReg8 { reg, bit } => Ok(self.set_reg8(reg, bit)),
+            Instruction::SetMem16 { reg, bit } => self.set_mem16(reg, bit, bus),
         }
     }
 }
@@ -385,5 +404,101 @@ impl Cpu {
         self.is_halted = true;
 
         (NextPc::Relative(1), ONE_M_STATE)
+    }
+
+    const fn daa(&mut self) -> (NextPc, usize) {
+        let mut value = self.registers.get_a();
+        // After an addition
+        if self.registers.get_subtraction_flag() {
+            if self.registers.get_carry_flag() {
+                value = value.wrapping_sub(0x60);
+            }
+            if self.registers.get_half_carry_flag() {
+                value = value.wrapping_sub(0x6);
+            }
+        } else {
+            if self.registers.get_carry_flag() || value > 0x99 {
+                value = value.wrapping_add(0x60);
+                self.registers.set_carry_flag(true);
+            }
+            if self.registers.get_half_carry_flag() || (value & 0xF) > 0x09 {
+                value = value.wrapping_add(0x6);
+            }
+        }
+
+        self.registers.set_zero_flag(value == 0);
+        self.registers.set_half_carry_flag(false);
+
+        self.registers.set_a(value);
+
+        (NextPc::Relative(1), ONE_M_STATE)
+    }
+}
+
+// Stack operations
+impl Cpu {
+    const fn pop_raw(&mut self, bus: &MemoryBus) -> Result<u16, ExecuteError> {
+        // Read least significant byte from stack
+        let lo = match bus.read_byte(self.registers.get_sp()) {
+            Ok(byte) => byte,
+            Err(err) => return Err(ExecuteError::BusRead(err)),
+        };
+
+        // Increment stack pointer
+        self.inc_reg16(Reg16::SP);
+
+        // Read least significant byte from stack
+        let hi = match bus.read_byte(self.registers.get_sp()) {
+            Ok(byte) => byte,
+            Err(err) => return Err(ExecuteError::BusRead(err)),
+        };
+
+        // Increment stack pointer
+        self.inc_reg16(Reg16::SP);
+
+        // Compute and return popped value
+        Ok(((hi as u16) << 8) | (lo as u16))
+    }
+
+    const fn push_raw(&mut self, value: u16, bus: &mut MemoryBus) -> Result<(), ExecuteError> {
+        let hi = ((value & 0xFF00) >> 8) as u8;
+        let lo = (value & 0x00FF) as u8;
+        // First decrement the stack pointer
+        self.dec_reg16(Reg16::SP);
+
+        // Then copy the most significant byte from the source to the stack
+        match bus.write_byte(self.registers.get_sp(), hi) {
+            Ok(()) => {}
+            Err(err) => return Err(ExecuteError::BusWrite(err)),
+        }
+
+        // Decrement the stack pointer again
+        self.dec_reg16(Reg16::SP);
+
+        // And write the least significant byte to the stack
+        match bus.write_byte(self.registers.get_sp(), lo) {
+            Ok(()) => {}
+            Err(err) => return Err(ExecuteError::BusWrite(err)),
+        }
+
+        Ok(())
+    }
+
+    fn pop_reg16(&mut self, dst: Reg16, bus: &MemoryBus) -> Result<(NextPc, usize), ExecuteError> {
+        let value = self.pop_raw(bus)?;
+        self.registers.set_reg16(dst, value);
+
+        Ok((NextPc::Relative(1), FOUR_M_STATE))
+    }
+
+    fn push_reg16(
+        &mut self,
+        src: Reg16,
+        bus: &mut MemoryBus,
+    ) -> Result<(NextPc, usize), ExecuteError> {
+        let value = self.registers.get_reg16(src);
+        self.push_raw(value, bus)?;
+
+        Ok((NextPc::Relative(1), FOUR_M_STATE))
     }
 }

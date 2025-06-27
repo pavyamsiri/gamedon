@@ -120,7 +120,7 @@ impl Registers {
 // 16-bit setters
 impl Registers {
     #[inline]
-    pub fn set_reg16(&mut self, reg: Reg16, value: u16) {
+    pub const fn set_reg16(&mut self, reg: Reg16, value: u16) {
         match reg {
             Reg16::BC => self.set_bc(value),
             Reg16::DE => self.set_de(value),
@@ -131,32 +131,32 @@ impl Registers {
     }
 
     #[inline]
-    pub fn set_bc(&mut self, value: u16) {
+    pub const fn set_bc(&mut self, value: u16) {
         self.bc = value;
     }
 
     #[inline]
-    pub fn set_de(&mut self, value: u16) {
+    pub const fn set_de(&mut self, value: u16) {
         self.de = value;
     }
 
     #[inline]
-    pub fn set_hl(&mut self, value: u16) {
+    pub const fn set_hl(&mut self, value: u16) {
         self.hl = value;
     }
 
     #[inline]
-    pub fn set_sp(&mut self, value: u16) {
+    pub const fn set_sp(&mut self, value: u16) {
         self.sp = value;
     }
 
     #[inline]
-    pub fn set_pc(&mut self, value: u16) {
+    pub const fn set_pc(&mut self, value: u16) {
         self.pc = value;
     }
 
     #[inline]
-    pub fn set_af(&mut self, value: u16) {
+    pub const fn set_af(&mut self, value: u16) {
         let hi = (value >> 8) as u8;
         let lo = (value & 0xFF) as u8;
         self.a = hi;
@@ -259,6 +259,11 @@ impl Registers {
     #[inline]
     pub const fn get_carry_flag(&self) -> bool {
         self.flags.contains(RegFlags::C)
+    }
+
+    #[inline]
+    pub const fn set_flags(&mut self, other: RegFlags, value: bool) {
+        self.flags.set(other, value);
     }
 }
 #[derive(Debug, Clone, Copy)]
