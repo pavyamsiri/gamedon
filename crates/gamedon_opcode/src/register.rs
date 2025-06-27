@@ -166,7 +166,7 @@ impl Registers {
 // 8-bit setters
 impl Registers {
     #[inline]
-    pub fn set_reg8(&mut self, reg: Reg8, value: u8) {
+    pub const fn set_reg8(&mut self, reg: Reg8, value: u8) {
         match reg {
             Reg8::B => self.set_b(value),
             Reg8::C => self.set_c(value),
@@ -179,39 +179,39 @@ impl Registers {
     }
 
     #[inline]
-    pub fn set_a(&mut self, value: u8) {
+    pub const fn set_a(&mut self, value: u8) {
         self.a = value;
     }
 
     // High registers
     #[inline]
-    pub fn set_b(&mut self, value: u8) {
+    pub const fn set_b(&mut self, value: u8) {
         self.bc = (self.bc & 0x00FF) | ((value as u16) << 8);
     }
 
     #[inline]
-    pub fn set_d(&mut self, value: u8) {
+    pub const fn set_d(&mut self, value: u8) {
         self.de = (self.de & 0x00FF) | ((value as u16) << 8);
     }
 
     #[inline]
-    pub fn set_h(&mut self, value: u8) {
+    pub const fn set_h(&mut self, value: u8) {
         self.hl = (self.hl & 0x00FF) | ((value as u16) << 8);
     }
 
     // Low registers
     #[inline]
-    pub fn set_c(&mut self, value: u8) {
+    pub const fn set_c(&mut self, value: u8) {
         self.bc = (self.bc & 0xFF00) | (value as u16);
     }
 
     #[inline]
-    pub fn set_e(&mut self, value: u8) {
+    pub const fn set_e(&mut self, value: u8) {
         self.de = (self.de & 0xFF00) | (value as u16);
     }
 
     #[inline]
-    pub fn set_l(&mut self, value: u8) {
+    pub const fn set_l(&mut self, value: u8) {
         self.hl = (self.hl & 0xFF00) | (value as u16);
     }
 }
@@ -239,6 +239,28 @@ impl Registers {
     }
 }
 
+// flag getters
+impl Registers {
+    #[inline]
+    pub const fn get_zero_flag(&self) -> bool {
+        self.flags.contains(RegFlags::Z)
+    }
+
+    #[inline]
+    pub const fn get_subtraction_flag(&self) -> bool {
+        self.flags.contains(RegFlags::N)
+    }
+
+    #[inline]
+    pub const fn get_half_carry_flag(&self) -> bool {
+        self.flags.contains(RegFlags::H)
+    }
+
+    #[inline]
+    pub const fn get_carry_flag(&self) -> bool {
+        self.flags.contains(RegFlags::C)
+    }
+}
 #[derive(Debug, Clone, Copy)]
 pub enum Reg8 {
     B,

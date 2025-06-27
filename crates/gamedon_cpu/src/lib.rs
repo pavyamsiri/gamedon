@@ -42,6 +42,9 @@ impl IncDirection {
 
 pub struct Cpu {
     registers: Registers,
+    is_halted: bool,
+    ime: bool,
+    set_ime: bool,
 }
 
 // Executor
@@ -59,11 +62,34 @@ impl Cpu {
         inst: Instruction,
         bus: &mut MemoryBus,
     ) -> Result<(u16, usize), ExecuteError> {
-        let (next_pc, num_cycles) = self.execute_raw(inst, bus)?;
-        let next_pc = match next_pc {
-            NextPc::Relative(offset) => self.calculate_offset_pc(offset)?,
-            NextPc::Absolute(next_pc) => next_pc,
+        let (mut next_pc, mut num_cycles) = if self.is_halted {
+            // Stay halted but increment cycle count by an M state
+            let (next_pc, num_cycles) = (self.registers.get_pc(), ONE_M_STATE);
+
+            // CPU is halted and waiting for interrupts
+            self.is_halted = !bus.pending_interrupts();
+            (next_pc, num_cycles)
+        } else {
+            let (next_pc, num_cycles) = self.execute_raw(inst, bus)?;
+            let next_pc = match next_pc {
+                NextPc::Relative(offset) => self.calculate_offset_pc(offset)?,
+                NextPc::Absolute(next_pc) => next_pc,
+            };
+            (next_pc, num_cycles)
         };
+        // If the Interrupt Master Enable is set
+        if self.ime {
+            // // Handle interrupts
+            let (next_interrupt_pc, interrupt_cycles) = self.handle_interrupts(next_pc, bus);
+            next_pc = next_interrupt_pc;
+            num_cycles += interrupt_cycles;
+            self.set_ime = false;
+        }
+
+        // Enable IME
+        if self.set_ime {
+            self.ime = true;
+        }
 
         Ok((next_pc, num_cycles))
     }
@@ -74,21 +100,23 @@ impl Cpu {
         bus: &mut MemoryBus,
     ) -> Result<(NextPc, usize), ExecuteError> {
         match inst {
-            Instruction::Nop => todo!(),
-            Instruction::Halt => todo!(),
-            Instruction::Stop => todo!(),
-            Instruction::Ei => todo!(),
-            Instruction::Di => todo!(),
+            Instruction::Nop | Instruction::Prefix => Ok((NextPc::Relative(1), ONE_M_STATE)),
+            Instruction::Halt => Ok(self.halt()),
+            Instruction::Stop => {
+                // TODO(pavyamsiri): Stop is not halt but it is more complicated so leave it until later
+                Ok(self.halt())
+            }
+            Instruction::Ei => Ok(self.ei()),
+            Instruction::Di => Ok(self.di()),
             Instruction::Daa => todo!(),
-            Instruction::Scf => todo!(),
-            Instruction::Ccf => todo!(),
-            Instruction::Cpl => todo!(),
+            Instruction::Scf => Ok(self.scf()),
+            Instruction::Ccf => Ok(self.ccf()),
+            Instruction::Cpl => Ok(self.cpl()),
             Instruction::Rlca => todo!(),
             Instruction::Rla => todo!(),
             Instruction::Rrca => todo!(),
             Instruction::Rra => todo!(),
             Instruction::Invalid => todo!("invalid instruction has specific behaviour"),
-            Instruction::Prefix => Ok((NextPc::Relative(1), ONE_M_STATE)),
             Instruction::LdReg8Reg8 { dst, src } => Ok(self.ld_reg8_reg8(dst, src)),
             Instruction::LdReg8Mem16 { dst, src } => self.ld_reg8_mem16(dst, src, bus),
             Instruction::LdReg8Imm8 { dst } => self.ld_reg8_imm8(dst, bus),
@@ -272,5 +300,90 @@ impl Cpu {
             Err(err) => return Err(err),
         };
         Ok(value as i8)
+    }
+}
+
+// interrupts
+impl Cpu {
+    fn handle_interrupts(&mut self, next_pc: u16, bus: &mut MemoryBus) -> (u16, usize) {
+        // if bus.pending_vblank_interrupts() {
+        //     bus.set_vblank_interrupt_request(false);
+        //     self.ime = false;
+        //     self.push(bus, next_pc);
+        //     return (0x40, 5 * M_STATE);
+        // } else if bus.pending_lcd_stat_interrupts() {
+        //     tracing::trace!("Servicing LCD STAT interrupt!");
+        //     bus.set_lcd_stat_interrupt_request(false);
+        //     self.ime = false;
+        //     self.push(bus, next_pc);
+        //     return (0x48, 5 * M_STATE);
+        // } else if bus.pending_timer_interrupts() {
+        //     bus.set_timer_interrupt_request(false);
+        //     self.ime = false;
+        //     self.push(bus, next_pc);
+        //     return (0x50, 5 * M_STATE);
+        // } else if bus.pending_serial_interrupts() {
+        //     bus.set_serial_interrupt_request(false);
+        //     self.ime = false;
+        //     self.push(bus, next_pc);
+        //     return (0x58, 5 * M_STATE);
+        // } else if bus.pending_joypad_interrupts() {
+        //     bus.set_joypad_interrupt_request(false);
+        //     self.ime = false;
+        //     self.push(bus, next_pc);
+        //     return (0x60, 5 * M_STATE);
+        // }
+        (next_pc, 0)
+    }
+}
+
+// miscellaneous
+impl Cpu {
+    const fn ei(&mut self) -> (NextPc, usize) {
+        self.set_ime = true;
+        (NextPc::Relative(1), ONE_M_STATE)
+    }
+
+    const fn di(&mut self) -> (NextPc, usize) {
+        self.ime = false;
+        (NextPc::Relative(1), ONE_M_STATE)
+    }
+
+    const fn scf(&mut self) -> (NextPc, usize) {
+        self.registers.set_carry_flag(true);
+        self.registers.set_half_carry_flag(false);
+        self.registers.set_subtraction_flag(false);
+
+        (NextPc::Relative(1), ONE_M_STATE)
+    }
+
+    const fn ccf(&mut self) -> (NextPc, usize) {
+        self.registers
+            .set_carry_flag(!self.registers.get_carry_flag());
+        self.registers.set_half_carry_flag(false);
+        self.registers.set_subtraction_flag(false);
+
+        (NextPc::Relative(1), ONE_M_STATE)
+    }
+
+    const fn cpl(&mut self) -> (NextPc, usize) {
+        // Flip bits of register A
+        let current_value = self.registers.get_a();
+        let new_value = current_value ^ 0xFF;
+
+        // Set subtraction flag
+        self.registers.set_subtraction_flag(true);
+        // Set half-carry flag
+        self.registers.set_half_carry_flag(true);
+
+        self.registers.set_a(new_value);
+
+        (NextPc::Relative(1), ONE_M_STATE)
+    }
+
+    const fn halt(&mut self) -> (NextPc, usize) {
+        self.is_halted = true;
+
+        (NextPc::Relative(1), ONE_M_STATE)
     }
 }

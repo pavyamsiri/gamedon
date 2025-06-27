@@ -37,4 +37,10 @@ impl MemoryBus {
         }
         Ok(())
     }
+
+    // TODO(pavyamsiri): Implement
+    #[inline]
+    pub const fn pending_interrupts(&self) -> bool {
+        false
+    }
 }
