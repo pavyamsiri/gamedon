@@ -1,5 +1,6 @@
 mod alu;
 mod bit;
+mod jump;
 mod load;
 mod rotate;
 
@@ -15,6 +16,7 @@ const TWO_M_STATE: usize = 8;
 const THREE_M_STATE: usize = 12;
 const FOUR_M_STATE: usize = 16;
 const FIVE_M_STATE: usize = 20;
+const SIX_M_STATE: usize = 24;
 
 #[derive(Debug, Error)]
 pub enum ExecuteError {
@@ -23,11 +25,13 @@ pub enum ExecuteError {
     #[error("Failed to write byte into bus: {0}")]
     BusWrite(#[from] WriteByteError),
     #[error("The next PC is not a valid 16-bit address: base = {base} + {offset} > 2^16 - 1")]
-    OutOfBoundsPc { base: u16, offset: u16 },
+    OutOfBoundsPc { base: u16, offset: i16 },
+    #[error("Attempted to run an invalid opcode.")]
+    InvalidOpcode,
 }
 
 enum NextPc {
-    Relative(u16),
+    Relative(i16),
     Absolute(u16),
 }
 
@@ -54,9 +58,9 @@ pub struct Cpu {
 
 // Executor
 impl Cpu {
-    const fn calculate_offset_pc(&self, offset: u16) -> Result<u16, ExecuteError> {
+    const fn calculate_offset_pc(&self, offset: i16) -> Result<u16, ExecuteError> {
         let pc = self.registers.get_pc();
-        match pc.checked_add(pc) {
+        match pc.checked_add_signed(offset) {
             Some(next_pc) => Ok(next_pc),
             None => Err(ExecuteError::OutOfBoundsPc { base: pc, offset }),
         }
@@ -111,7 +115,7 @@ impl Cpu {
                 // TODO(pavyamsiri): Stop is not halt but it is more complicated so leave it until later
                 Ok(self.halt())
             }
-            Instruction::Invalid => todo!("invalid instruction has specific behaviour"),
+            Instruction::Invalid => Err(ExecuteError::InvalidOpcode),
             Instruction::Ei => Ok(self.ei()),
             Instruction::Di => Ok(self.di()),
             Instruction::Daa => Ok(self.daa()),
@@ -171,17 +175,17 @@ impl Cpu {
             Instruction::AddReg16Off8 { dst } => self.add_reg16_off8(dst, bus),
             Instruction::PushReg16 { src } => self.push_reg16(src, bus),
             Instruction::PopReg16 { dst } => self.pop_reg16(dst, bus),
-            Instruction::Jr => todo!(),
-            Instruction::Jrc { condition } => todo!(),
-            Instruction::Jp => todo!(),
-            Instruction::Jpc { condition } => todo!(),
-            Instruction::JpReg16 { reg } => todo!(),
-            Instruction::Ret => todo!(),
-            Instruction::Retc { condition } => todo!(),
-            Instruction::Reti => todo!(),
-            Instruction::Call => todo!(),
-            Instruction::Callc { condition } => todo!(),
-            Instruction::Rst { target } => todo!(),
+            Instruction::Jr => self.jump_relative(None, bus),
+            Instruction::Jrc { condition } => self.jump_relative(Some(condition), bus),
+            Instruction::Jp => self.jump_absolute(None, bus),
+            Instruction::Jpc { condition } => self.jump_absolute(Some(condition), bus),
+            Instruction::JpReg16 { reg } => Ok(self.jump_absolute_reg16(reg)),
+            Instruction::Ret => self.ret(None, false, bus),
+            Instruction::Retc { condition } => self.ret(Some(condition), false, bus),
+            Instruction::Reti => self.ret(None, true, bus),
+            Instruction::Call => self.call(None, bus),
+            Instruction::Callc { condition } => self.call(Some(condition), bus),
+            Instruction::Rst { target } => self.rst(target, bus),
             Instruction::AddReg8 { src } => Ok(self.add_reg8_reg8(Reg8::A, src, WithCarry::No)),
             Instruction::AddMem16 { src } => self.add_reg8_mem16(Reg8::A, src, WithCarry::No, bus),
             Instruction::AddImm8 => self.add_reg8_imm8(Reg8::A, WithCarry::No, bus),

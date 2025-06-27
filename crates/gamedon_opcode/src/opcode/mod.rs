@@ -57,6 +57,22 @@ pub enum RstAddress {
     RST38,
 }
 
+impl RstAddress {
+    #[inline]
+    pub const fn to_address(self) -> u16 {
+        match self {
+            RstAddress::RST00 => 0x0000,
+            RstAddress::RST08 => 0x0008,
+            RstAddress::RST10 => 0x0010,
+            RstAddress::RST18 => 0x0018,
+            RstAddress::RST20 => 0x0020,
+            RstAddress::RST28 => 0x0028,
+            RstAddress::RST30 => 0x0030,
+            RstAddress::RST38 => 0x0038,
+        }
+    }
+}
+
 impl core::fmt::Display for RstAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
