@@ -2,7 +2,7 @@ use owo_colors::{OwoColorize, Stream, Style};
 
 const REGISTER_STYLE: Style = Style::new().blue();
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct Registers {
     /// The 16-bit accumulator.
     a: u8,
@@ -18,6 +18,19 @@ pub struct Registers {
     sp: u16,
     /// The program counter.
     pc: u16,
+}
+
+impl core::fmt::Debug for Registers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Registers")
+            .field("af", &format_args!("{:#06X}", &self.get_af()))
+            .field("bc", &format_args!("{:#06X}", &self.get_bc()))
+            .field("de", &format_args!("{:#06X}", &self.get_de()))
+            .field("hl", &format_args!("{:#06X}", &self.get_hl()))
+            .field("sp", &format_args!("{:#06X}", &self.get_sp()))
+            .field("pc", &format_args!("{:#06X}", &self.get_pc()))
+            .finish()
+    }
 }
 
 // 8-bit getters
@@ -166,7 +179,7 @@ impl Registers {
 // 8-bit setters
 impl Registers {
     #[inline]
-    pub const fn set_reg8(&mut self, reg: Reg8, value: u8) {
+    pub fn set_reg8(&mut self, reg: Reg8, value: u8) {
         match reg {
             Reg8::B => self.set_b(value),
             Reg8::C => self.set_c(value),
@@ -201,7 +214,7 @@ impl Registers {
 
     // Low registers
     #[inline]
-    pub const fn set_c(&mut self, value: u8) {
+    pub fn set_c(&mut self, value: u8) {
         self.bc = (self.bc & 0xFF00) | (value as u16);
     }
 
@@ -361,7 +374,7 @@ impl core::fmt::Display for Reg16 {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct RegFlags(u8);
 
 impl RegFlags {

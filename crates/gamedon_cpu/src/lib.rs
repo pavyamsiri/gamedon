@@ -1,22 +1,29 @@
 mod alu;
 mod bit;
+mod boot;
 mod jump;
 mod load;
 mod rotate;
 
+use std::collections::BTreeMap;
+
 use alu::WithCarry;
-use gamedon_bus::{MemoryBus, ReadByteError, WriteByteError};
+use gamedon_bus::{BusReader, BusWriter, MemoryBus, ReadByteError, WriteByteError};
 use gamedon_opcode::{Instruction, Reg8, Reg16, Registers};
 use rotate::ShiftOption;
 use thiserror::Error;
 
+pub use boot::BootRom;
+
+type Map<K, V> = BTreeMap<K, V>;
+
 /// The number of clock cycles in a machine cycle.
-const ONE_M_STATE: usize = 4;
-const TWO_M_STATE: usize = 8;
-const THREE_M_STATE: usize = 12;
-const FOUR_M_STATE: usize = 16;
-const FIVE_M_STATE: usize = 20;
-const SIX_M_STATE: usize = 24;
+const ONE_M_STATE: usize = 1;
+const TWO_M_STATE: usize = 2;
+const THREE_M_STATE: usize = 3;
+const FOUR_M_STATE: usize = 4;
+const FIVE_M_STATE: usize = 5;
+const SIX_M_STATE: usize = 6;
 
 #[derive(Debug, Error)]
 pub enum ExecuteError {
@@ -30,6 +37,7 @@ pub enum ExecuteError {
     InvalidOpcode,
 }
 
+#[derive(Debug, Clone, Copy)]
 enum NextPc {
     Relative(i16),
     Absolute(u16),
@@ -49,11 +57,37 @@ impl IncDirection {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub enum BreakPointCondition {
+    #[default]
+    RunInto,
+}
+
+#[derive(Debug, Default)]
 pub struct Cpu {
     registers: Registers,
     is_halted: bool,
     ime: bool,
     set_ime: bool,
+    is_prefix: bool,
+
+    // Debug
+    paused: bool,
+    step_count: usize,
+    debug_flag: bool,
+
+    breakpoints: Map<u16, BreakPointCondition>,
+}
+
+// Debug
+impl Cpu {
+    pub fn add_breakpoint(&mut self, address: u16, condition: BreakPointCondition) {
+        self.breakpoints.insert(address, condition);
+    }
+
+    pub fn paused(&self) -> bool {
+        self.paused
+    }
 }
 
 // Executor
@@ -66,6 +100,40 @@ impl Cpu {
         }
     }
 
+    pub fn step(&mut self, bus: &mut MemoryBus) -> Result<usize, ExecuteError> {
+        if self.paused {
+            return Ok(0);
+        }
+
+        // Fetch instruction
+        let current_address = self.registers.get_pc();
+
+        if let Some(condition) = self.breakpoints.get(&current_address) {
+            match condition {
+                BreakPointCondition::RunInto => self.paused = true,
+            }
+        }
+
+        if self.paused {
+            return Ok(0);
+        }
+
+        let opcode = bus.read_byte(current_address)?;
+        let inst = if self.is_prefix {
+            self.is_prefix = false;
+            Instruction::decode_prefix(opcode)
+        } else {
+            Instruction::decode_no_prefix(opcode)
+        };
+
+        let (next_pc, num_cycles) = self.execute(inst, bus)?;
+
+        // Update program counter
+        self.registers.set_pc(next_pc);
+
+        Ok(num_cycles)
+    }
+
     pub fn execute(
         &mut self,
         inst: Instruction,
@@ -76,7 +144,7 @@ impl Cpu {
             let (next_pc, num_cycles) = (self.registers.get_pc(), ONE_M_STATE);
 
             // CPU is halted and waiting for interrupts
-            self.is_halted = !bus.pending_interrupts();
+            self.is_halted = !bus.is_pending_interrupts();
             (next_pc, num_cycles)
         } else {
             let (next_pc, num_cycles) = self.execute_raw(inst, bus)?;
@@ -89,7 +157,7 @@ impl Cpu {
         // If the Interrupt Master Enable is set
         if self.ime {
             // // Handle interrupts
-            let (next_interrupt_pc, interrupt_cycles) = self.handle_interrupts(next_pc, bus);
+            let (next_interrupt_pc, interrupt_cycles) = self.handle_interrupts(next_pc, bus)?;
             next_pc = next_interrupt_pc;
             num_cycles += interrupt_cycles;
             self.set_ime = false;
@@ -109,7 +177,11 @@ impl Cpu {
         bus: &mut MemoryBus,
     ) -> Result<(NextPc, usize), ExecuteError> {
         match inst {
-            Instruction::Nop | Instruction::Prefix => Ok((NextPc::Relative(1), ONE_M_STATE)),
+            Instruction::Nop => Ok((NextPc::Relative(1), ONE_M_STATE)),
+            Instruction::Prefix => {
+                self.is_prefix = true;
+                Ok((NextPc::Relative(1), ONE_M_STATE))
+            }
             Instruction::Halt => Ok(self.halt()),
             Instruction::Stop => {
                 // TODO(pavyamsiri): Stop is not halt but it is more complicated so leave it until later
@@ -240,12 +312,12 @@ impl Cpu {
 
 // memory helpers
 impl Cpu {
-    const fn read_byte_mem16(&self, reg: Reg16, bus: &MemoryBus) -> Result<u8, ReadByteError> {
+    fn read_byte_mem16(&self, reg: Reg16, bus: &MemoryBus) -> Result<u8, ReadByteError> {
         let address = self.registers.get_reg16(reg);
         bus.read_byte(address)
     }
 
-    const fn write_byte_mem16(
+    fn write_byte_mem16(
         &self,
         reg: Reg16,
         value: u8,
@@ -255,12 +327,12 @@ impl Cpu {
         bus.write_byte(address, value)
     }
 
-    const fn read_byte_mem8(&self, reg: Reg8, bus: &MemoryBus) -> Result<u8, ReadByteError> {
+    fn read_byte_mem8(&self, reg: Reg8, bus: &MemoryBus) -> Result<u8, ReadByteError> {
         let address = self.read_mem8(reg);
         bus.read_byte(address)
     }
 
-    const fn write_byte_mem8(
+    fn write_byte_mem8(
         &self,
         reg: Reg8,
         value: u8,
@@ -270,44 +342,24 @@ impl Cpu {
         bus.write_byte(address, value)
     }
 
-    const fn read_imm8(&self, bus: &MemoryBus) -> Result<u8, ExecuteError> {
-        let address = match self.calculate_offset_pc(1) {
-            Ok(address) => address,
-            Err(err) => return Err(err),
-        };
-        match bus.read_byte(address) {
-            Ok(byte) => Ok(byte),
-            Err(err) => Err(ExecuteError::BusRead(err)),
-        }
+    fn read_imm8(&self, bus: &MemoryBus) -> Result<u8, ExecuteError> {
+        let address = self.calculate_offset_pc(1)?;
+        let value = bus.read_byte(address)?;
+        Ok(value)
     }
 
-    const fn read_imm16(&self, bus: &MemoryBus) -> Result<u16, ExecuteError> {
-        let lo_address = match self.calculate_offset_pc(1) {
-            Ok(lo) => lo,
-            Err(err) => return Err(err),
-        };
-        let hi_address = match self.calculate_offset_pc(2) {
-            Ok(hi) => hi,
-            Err(err) => return Err(err),
-        };
+    fn read_imm16(&self, bus: &MemoryBus) -> Result<u16, ExecuteError> {
+        let lo_address = self.calculate_offset_pc(1)?;
+        let hi_address = self.calculate_offset_pc(2)?;
 
-        let lo = match bus.read_byte(lo_address) {
-            Ok(lo) => lo,
-            Err(err) => return Err(ExecuteError::BusRead(err)),
-        };
-        let hi = match bus.read_byte(hi_address) {
-            Ok(hi) => hi,
-            Err(err) => return Err(ExecuteError::BusRead(err)),
-        };
-        Ok(((hi as u16) << 8) | (lo as u16))
+        let lo = bus.read_byte(lo_address)?;
+        let hi = bus.read_byte(hi_address)?;
+        Ok((u16::from(hi) << 8) | u16::from(lo))
     }
 
-    const fn read_adr8(&self, bus: &MemoryBus) -> Result<u16, ExecuteError> {
-        let offset = match self.read_imm8(bus) {
-            Ok(offset) => offset,
-            Err(err) => return Err(err),
-        };
-        let address = 0xFF00 | (offset as u16);
+    fn read_adr8(&self, bus: &MemoryBus) -> Result<u16, ExecuteError> {
+        let offset = self.read_imm8(bus)?;
+        let address = 0xFF00 | u16::from(offset);
         Ok(address)
     }
 
@@ -317,46 +369,26 @@ impl Cpu {
     }
 
     #[expect(clippy::cast_possible_wrap, reason = "this behaviour is expected.")]
-    const fn read_i8(&self, bus: &MemoryBus) -> Result<i8, ExecuteError> {
-        let value = match self.read_imm8(bus) {
-            Ok(value) => value,
-            Err(err) => return Err(err),
-        };
+    fn read_i8(&self, bus: &MemoryBus) -> Result<i8, ExecuteError> {
+        let value = self.read_imm8(bus)?;
         Ok(value as i8)
     }
 }
 
 // interrupts
 impl Cpu {
-    fn handle_interrupts(&mut self, next_pc: u16, bus: &mut MemoryBus) -> (u16, usize) {
-        // if bus.pending_vblank_interrupts() {
-        //     bus.set_vblank_interrupt_request(false);
-        //     self.ime = false;
-        //     self.push(bus, next_pc);
-        //     return (0x40, 5 * M_STATE);
-        // } else if bus.pending_lcd_stat_interrupts() {
-        //     tracing::trace!("Servicing LCD STAT interrupt!");
-        //     bus.set_lcd_stat_interrupt_request(false);
-        //     self.ime = false;
-        //     self.push(bus, next_pc);
-        //     return (0x48, 5 * M_STATE);
-        // } else if bus.pending_timer_interrupts() {
-        //     bus.set_timer_interrupt_request(false);
-        //     self.ime = false;
-        //     self.push(bus, next_pc);
-        //     return (0x50, 5 * M_STATE);
-        // } else if bus.pending_serial_interrupts() {
-        //     bus.set_serial_interrupt_request(false);
-        //     self.ime = false;
-        //     self.push(bus, next_pc);
-        //     return (0x58, 5 * M_STATE);
-        // } else if bus.pending_joypad_interrupts() {
-        //     bus.set_joypad_interrupt_request(false);
-        //     self.ime = false;
-        //     self.push(bus, next_pc);
-        //     return (0x60, 5 * M_STATE);
-        // }
-        (next_pc, 0)
+    fn handle_interrupts(
+        &mut self,
+        next_pc: u16,
+        bus: &mut MemoryBus,
+    ) -> Result<(u16, usize), ExecuteError> {
+        if let Some(interrupt) = bus.get_pending_interrupt() {
+            bus.reset_interrupt_request(interrupt);
+            self.push_raw(next_pc, bus)?;
+            Ok((interrupt.to_address(), FIVE_M_STATE))
+        } else {
+            Ok((next_pc, 0))
+        }
     }
 }
 
@@ -441,30 +473,24 @@ impl Cpu {
 
 // Stack operations
 impl Cpu {
-    const fn pop_raw(&mut self, bus: &MemoryBus) -> Result<u16, ExecuteError> {
+    fn pop_raw(&mut self, bus: &MemoryBus) -> Result<u16, ExecuteError> {
         // Read least significant byte from stack
-        let lo = match bus.read_byte(self.registers.get_sp()) {
-            Ok(byte) => byte,
-            Err(err) => return Err(ExecuteError::BusRead(err)),
-        };
+        let lo = bus.read_byte(self.registers.get_sp())?;
 
         // Increment stack pointer
         self.inc_reg16(Reg16::SP);
 
         // Read least significant byte from stack
-        let hi = match bus.read_byte(self.registers.get_sp()) {
-            Ok(byte) => byte,
-            Err(err) => return Err(ExecuteError::BusRead(err)),
-        };
+        let hi = bus.read_byte(self.registers.get_sp())?;
 
         // Increment stack pointer
         self.inc_reg16(Reg16::SP);
 
         // Compute and return popped value
-        Ok(((hi as u16) << 8) | (lo as u16))
+        Ok((u16::from(hi) << 8) | u16::from(lo))
     }
 
-    const fn push_raw(&mut self, value: u16, bus: &mut MemoryBus) -> Result<(), ExecuteError> {
+    fn push_raw(&mut self, value: u16, bus: &mut MemoryBus) -> Result<(), ExecuteError> {
         let hi = ((value & 0xFF00) >> 8) as u8;
         let lo = (value & 0x00FF) as u8;
         // First decrement the stack pointer

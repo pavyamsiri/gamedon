@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 gamedon_bus = { workspace = true }
 gamedon_opcode = { workspace = true }

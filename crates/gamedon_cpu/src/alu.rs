@@ -10,7 +10,7 @@ pub(crate) enum WithCarry {
 
 // Raw ALU ops
 impl Cpu {
-    pub(crate) const fn alu_inc8(&mut self, value: u8) -> u8 {
+    pub(crate) fn alu_inc8(&mut self, value: u8) -> u8 {
         let new_value = value.wrapping_add(1);
 
         // Set zero flag to true if result is zero
@@ -25,7 +25,7 @@ impl Cpu {
         new_value
     }
 
-    pub(crate) const fn alu_dec8(&mut self, value: u8) -> u8 {
+    pub(crate) fn alu_dec8(&mut self, value: u8) -> u8 {
         let new_value = value.wrapping_sub(1);
 
         // Set zero flag to true if result is zero
@@ -38,15 +38,15 @@ impl Cpu {
         new_value
     }
 
-    pub(crate) const fn alu_inc16(value: u16) -> u16 {
+    pub(crate) fn alu_inc16(value: u16) -> u16 {
         value.wrapping_add(1)
     }
 
-    pub(crate) const fn alu_dec16(value: u16) -> u16 {
+    pub(crate) fn alu_dec16(value: u16) -> u16 {
         value.wrapping_sub(1)
     }
 
-    pub(crate) const fn alu_add8(&mut self, lhs: u8, rhs: u8, with_carry: WithCarry) -> u8 {
+    pub(crate) fn alu_add8(&mut self, lhs: u8, rhs: u8, with_carry: WithCarry) -> u8 {
         let carry_value = match with_carry {
             WithCarry::Yes => self.registers.get_carry_flag() as u8,
             WithCarry::No => 0,
@@ -69,7 +69,7 @@ impl Cpu {
         new_value
     }
 
-    pub(crate) const fn alu_sub8(&mut self, lhs: u8, rhs: u8, with_carry: WithCarry) -> u8 {
+    pub(crate) fn alu_sub8(&mut self, lhs: u8, rhs: u8, with_carry: WithCarry) -> u8 {
         let carry_value = match with_carry {
             WithCarry::Yes => self.registers.get_carry_flag() as u8,
             WithCarry::No => 0,
@@ -93,7 +93,7 @@ impl Cpu {
         new_value
     }
 
-    pub(crate) const fn alu_and8(&mut self, lhs: u8, rhs: u8) -> u8 {
+    pub(crate) fn alu_and8(&mut self, lhs: u8, rhs: u8) -> u8 {
         let result = rhs & lhs;
 
         // Set zero flag to true if result is false
@@ -108,7 +108,7 @@ impl Cpu {
         result
     }
 
-    pub(crate) const fn alu_xor8(&mut self, lhs: u8, rhs: u8) -> u8 {
+    pub(crate) fn alu_xor8(&mut self, lhs: u8, rhs: u8) -> u8 {
         let result = rhs ^ lhs;
 
         // Set zero flag to true if result is false
@@ -123,7 +123,7 @@ impl Cpu {
         result
     }
 
-    pub(crate) const fn alu_or8(&mut self, lhs: u8, rhs: u8) -> u8 {
+    pub(crate) fn alu_or8(&mut self, lhs: u8, rhs: u8) -> u8 {
         let result = rhs | lhs;
 
         // Set zero flag to true if result is false
@@ -138,7 +138,7 @@ impl Cpu {
         result
     }
 
-    pub(crate) const fn alu_add16(&mut self, lhs: u16, rhs: u16) -> u16 {
+    pub(crate) fn alu_add16(&mut self, lhs: u16, rhs: u16) -> u16 {
         let (new_value, did_overflow) = lhs.overflowing_add(rhs);
 
         // Reset subtraction flag
@@ -155,7 +155,7 @@ impl Cpu {
     }
 
     #[expect(clippy::cast_sign_loss, reason = "this behaviour is expected.")]
-    pub(crate) const fn alu_add16_signed(&mut self, base: u16, offset: i8) -> u16 {
+    pub(crate) fn alu_add16_signed(&mut self, base: u16, offset: i8) -> u16 {
         let (new_value, _) = base.overflowing_add(offset as u16);
 
         // Reset zero flag
@@ -176,7 +176,7 @@ impl Cpu {
 
 // ALU ops
 impl Cpu {
-    pub(crate) const fn add_reg8_reg8(
+    pub(crate) fn add_reg8_reg8(
         &mut self,
         dst: Reg8,
         src: Reg8,
@@ -219,7 +219,7 @@ impl Cpu {
         Ok((NextPc::Relative(2), TWO_M_STATE))
     }
 
-    pub(crate) const fn sub_reg8_reg8(
+    pub(crate) fn sub_reg8_reg8(
         &mut self,
         dst: Reg8,
         src: Reg8,
@@ -262,7 +262,7 @@ impl Cpu {
         Ok((NextPc::Relative(2), TWO_M_STATE))
     }
 
-    pub(crate) const fn and_reg8_reg8(&mut self, dst: Reg8, src: Reg8) -> (NextPc, usize) {
+    pub(crate) fn and_reg8_reg8(&mut self, dst: Reg8, src: Reg8) -> (NextPc, usize) {
         let lhs = self.registers.get_reg8(dst);
         let rhs = self.registers.get_reg8(src);
         let value = self.alu_and8(lhs, rhs);
@@ -298,7 +298,7 @@ impl Cpu {
         Ok((NextPc::Relative(2), TWO_M_STATE))
     }
 
-    pub(crate) const fn xor_reg8_reg8(&mut self, dst: Reg8, src: Reg8) -> (NextPc, usize) {
+    pub(crate) fn xor_reg8_reg8(&mut self, dst: Reg8, src: Reg8) -> (NextPc, usize) {
         let lhs = self.registers.get_reg8(dst);
         let rhs = self.registers.get_reg8(src);
         let value = self.alu_xor8(lhs, rhs);
@@ -334,7 +334,7 @@ impl Cpu {
         Ok((NextPc::Relative(2), TWO_M_STATE))
     }
 
-    pub(crate) const fn or_reg8_reg8(&mut self, dst: Reg8, src: Reg8) -> (NextPc, usize) {
+    pub(crate) fn or_reg8_reg8(&mut self, dst: Reg8, src: Reg8) -> (NextPc, usize) {
         let lhs = self.registers.get_reg8(dst);
         let rhs = self.registers.get_reg8(src);
         let value = self.alu_or8(lhs, rhs);
@@ -370,7 +370,7 @@ impl Cpu {
         Ok((NextPc::Relative(2), TWO_M_STATE))
     }
 
-    pub(crate) const fn cp_reg8_reg8(&mut self, dst: Reg8, src: Reg8) -> (NextPc, usize) {
+    pub(crate) fn cp_reg8_reg8(&mut self, dst: Reg8, src: Reg8) -> (NextPc, usize) {
         let lhs = self.registers.get_reg8(dst);
         let rhs = self.registers.get_reg8(src);
         let _ = self.alu_sub8(lhs, rhs, WithCarry::No);
@@ -403,7 +403,7 @@ impl Cpu {
         Ok((NextPc::Relative(2), TWO_M_STATE))
     }
 
-    pub(crate) const fn inc_reg8(&mut self, reg: Reg8) -> (NextPc, usize) {
+    pub(crate) fn inc_reg8(&mut self, reg: Reg8) -> (NextPc, usize) {
         let value = self.registers.get_reg8(reg);
         let new_value = self.alu_inc8(value);
         self.registers.set_reg8(reg, new_value);
@@ -423,11 +423,10 @@ impl Cpu {
         Ok((NextPc::Relative(1), THREE_M_STATE))
     }
 
-    pub(crate) const fn dec_reg8(&mut self, reg: Reg8) -> (NextPc, usize) {
+    pub(crate) fn dec_reg8(&mut self, reg: Reg8) -> (NextPc, usize) {
         let value = self.registers.get_reg8(reg);
         let new_value = self.alu_dec8(value);
         self.registers.set_reg8(reg, new_value);
-
         (NextPc::Relative(1), ONE_M_STATE)
     }
 
@@ -443,7 +442,7 @@ impl Cpu {
         Ok((NextPc::Relative(1), THREE_M_STATE))
     }
 
-    pub(crate) const fn inc_reg16(&mut self, reg: Reg16) -> (NextPc, usize) {
+    pub(crate) fn inc_reg16(&mut self, reg: Reg16) -> (NextPc, usize) {
         let value = self.registers.get_reg16(reg);
         let new_value = value.wrapping_add(1);
         self.registers.set_reg16(reg, new_value);
@@ -451,7 +450,7 @@ impl Cpu {
         (NextPc::Relative(1), TWO_M_STATE)
     }
 
-    pub(crate) const fn dec_reg16(&mut self, reg: Reg16) -> (NextPc, usize) {
+    pub(crate) fn dec_reg16(&mut self, reg: Reg16) -> (NextPc, usize) {
         let value = self.registers.get_reg16(reg);
         let new_value = value.wrapping_sub(1);
         self.registers.set_reg16(reg, new_value);
@@ -459,7 +458,7 @@ impl Cpu {
         (NextPc::Relative(1), TWO_M_STATE)
     }
 
-    pub(crate) const fn add_reg16_reg16(&mut self, dst: Reg16, src: Reg16) -> (NextPc, usize) {
+    pub(crate) fn add_reg16_reg16(&mut self, dst: Reg16, src: Reg16) -> (NextPc, usize) {
         let lhs = self.registers.get_reg16(dst);
         let rhs = self.registers.get_reg16(src);
         let value = self.alu_add16(lhs, rhs);

@@ -6,5 +6,7 @@ edition = "2024"
 [dependencies]
 thiserror = { workspace = true }
 
+gamedon_bits = { workspace = true }
+
 [lints]
 workspace = true

@@ -1,10 +1,10 @@
 [package]
-name = "gamedon_opcode"
+name = "gamedon_bits"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 owo-colors = { workspace = true }
-tracing = { workspace = true }
 
-gamedon_bits = { workspace = true }
+[lints]
+workspace = true

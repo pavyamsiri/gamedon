@@ -11,7 +11,7 @@ pub(crate) enum ShiftOption {
 }
 
 impl Cpu {
-    pub(crate) const fn alu_rotate_left(&mut self, value: u8, with_carry: WithCarry) -> u8 {
+    pub(crate) fn alu_rotate_left(&mut self, value: u8, with_carry: WithCarry) -> u8 {
         let old_bit = value >> 7;
         let fill_bit = match with_carry {
             WithCarry::Yes => self.registers.get_carry_flag() as u8,
@@ -33,7 +33,7 @@ impl Cpu {
         new_value
     }
 
-    pub(crate) const fn alu_rotate_right(&mut self, value: u8, with_carry: WithCarry) -> u8 {
+    pub(crate) fn alu_rotate_right(&mut self, value: u8, with_carry: WithCarry) -> u8 {
         let old_bit = value << 7;
         let fill_bit = match with_carry {
             WithCarry::Yes => (self.registers.get_carry_flag() as u8) << 7,
@@ -55,7 +55,7 @@ impl Cpu {
         new_value
     }
 
-    pub(crate) const fn alu_shift_left(&mut self, value: u8) -> u8 {
+    pub(crate) fn alu_shift_left(&mut self, value: u8) -> u8 {
         let old_bit = value >> 7;
         let new_value = (value << 1) & 0xFE;
 
@@ -73,7 +73,7 @@ impl Cpu {
         new_value
     }
 
-    pub(crate) const fn alu_shift_right(&mut self, value: u8, leave: ShiftOption) -> u8 {
+    pub(crate) fn alu_shift_right(&mut self, value: u8, leave: ShiftOption) -> u8 {
         let old_bit = value & 0x1;
         let fill_bit = match leave {
             ShiftOption::Unchanged => value & 0b1000_0000,
@@ -95,7 +95,7 @@ impl Cpu {
         new_value
     }
 
-    pub(crate) const fn alu_swap(&mut self, value: u8) -> u8 {
+    pub(crate) fn alu_swap(&mut self, value: u8) -> u8 {
         let new_value = ((value & 0x0F) << 4) | ((value & 0xF0) >> 4);
 
         // Set zero flag if result is zero else reset
@@ -113,11 +113,7 @@ impl Cpu {
 }
 
 impl Cpu {
-    pub(crate) const fn rotate_left_reg8(
-        &mut self,
-        reg: Reg8,
-        with_carry: WithCarry,
-    ) -> (NextPc, usize) {
+    pub(crate) fn rotate_left_reg8(&mut self, reg: Reg8, with_carry: WithCarry) -> (NextPc, usize) {
         let value = self.registers.get_reg8(reg);
         let new_value = self.alu_rotate_left(value, with_carry);
         self.registers.set_reg8(reg, new_value);
@@ -138,7 +134,7 @@ impl Cpu {
         Ok((NextPc::Relative(1), THREE_M_STATE))
     }
 
-    pub(crate) const fn rotate_right_reg8(
+    pub(crate) fn rotate_right_reg8(
         &mut self,
         reg: Reg8,
         with_carry: WithCarry,
@@ -163,7 +159,7 @@ impl Cpu {
         Ok((NextPc::Relative(1), THREE_M_STATE))
     }
 
-    pub(crate) const fn shift_left_reg8(&mut self, reg: Reg8) -> (NextPc, usize) {
+    pub(crate) fn shift_left_reg8(&mut self, reg: Reg8) -> (NextPc, usize) {
         let value = self.registers.get_reg8(reg);
         let new_value = self.alu_shift_left(value);
         self.registers.set_reg8(reg, new_value);
@@ -183,11 +179,7 @@ impl Cpu {
         Ok((NextPc::Relative(1), THREE_M_STATE))
     }
 
-    pub(crate) const fn shift_right_reg8(
-        &mut self,
-        reg: Reg8,
-        leave: ShiftOption,
-    ) -> (NextPc, usize) {
+    pub(crate) fn shift_right_reg8(&mut self, reg: Reg8, leave: ShiftOption) -> (NextPc, usize) {
         let value = self.registers.get_reg8(reg);
         let new_value = self.alu_shift_right(value, leave);
         self.registers.set_reg8(reg, new_value);
@@ -208,7 +200,7 @@ impl Cpu {
         Ok((NextPc::Relative(1), THREE_M_STATE))
     }
 
-    pub(crate) const fn swap_reg8(&mut self, reg: Reg8) -> (NextPc, usize) {
+    pub(crate) fn swap_reg8(&mut self, reg: Reg8) -> (NextPc, usize) {
         let value = self.registers.get_reg8(reg);
         let new_value = self.alu_swap(value);
         self.registers.set_reg8(reg, new_value);

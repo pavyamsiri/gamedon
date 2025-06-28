@@ -2,7 +2,7 @@ use crate::{
     Cpu, ExecuteError, FIVE_M_STATE, FOUR_M_STATE, IncDirection, NextPc, ONE_M_STATE,
     THREE_M_STATE, TWO_M_STATE,
 };
-use gamedon_bus::MemoryBus;
+use gamedon_bus::{BusReader, BusWriter, MemoryBus};
 use gamedon_opcode::{Reg8, Reg16};
 
 // 8-bit loads.
@@ -164,6 +164,7 @@ impl Cpu {
             .registers
             .get_reg16(src)
             .wrapping_add_signed(direction.offset_i16());
+
         self.registers.set_reg16(src, new_reg16);
 
         Ok((NextPc::Relative(1), TWO_M_STATE))

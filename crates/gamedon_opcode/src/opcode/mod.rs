@@ -1,5 +1,6 @@
 use crate::register::{Reg8, Reg16};
 use core::fmt::Write;
+use gamedon_bits::BitShift8;
 use owo_colors::colors::*;
 use owo_colors::{OwoColorize, Stream, Style};
 
@@ -8,7 +9,6 @@ const ERROR_STYLE: Style = Style::new().red();
 const IMMEDIATE_STYLE: Style = Style::new().magenta();
 const ADDRESS_STYLE: Style = Style::new().bright_magenta();
 const CONDITION_STYLE: Style = Style::new().green();
-const BIT_POSITION_STYLE: Style = Style::new().green();
 
 #[derive(Debug, Clone, Copy)]
 pub enum Condition {
@@ -115,81 +115,6 @@ impl core::fmt::Display for RstAddress {
                 f,
                 "{}",
                 "$0038".if_supports_color(Stream::Stdout, |text| text.style(ADDRESS_STYLE))
-            ),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum BitPosition {
-    Bit0,
-    Bit1,
-    Bit2,
-    Bit3,
-    Bit4,
-    Bit5,
-    Bit6,
-    Bit7,
-}
-
-impl BitPosition {
-    #[inline]
-    pub const fn get_shift_amount(self) -> u8 {
-        match self {
-            Self::Bit0 => 0,
-            Self::Bit1 => 1,
-            Self::Bit2 => 2,
-            Self::Bit3 => 3,
-            Self::Bit4 => 4,
-            Self::Bit5 => 5,
-            Self::Bit6 => 6,
-            Self::Bit7 => 7,
-        }
-    }
-}
-
-impl core::fmt::Display for BitPosition {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Bit0 => write!(
-                f,
-                "{}",
-                "0".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
-            ),
-            Self::Bit1 => write!(
-                f,
-                "{}",
-                "1".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
-            ),
-            Self::Bit2 => write!(
-                f,
-                "{}",
-                "2".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
-            ),
-            Self::Bit3 => write!(
-                f,
-                "{}",
-                "3".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
-            ),
-            Self::Bit4 => write!(
-                f,
-                "{}",
-                "4".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
-            ),
-            Self::Bit5 => write!(
-                f,
-                "{}",
-                "5".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
-            ),
-            Self::Bit6 => write!(
-                f,
-                "{}",
-                "6".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
-            ),
-            Self::Bit7 => write!(
-                f,
-                "{}",
-                "7".if_supports_color(Stream::Stdout, |text| text.style(BIT_POSITION_STYLE))
             ),
         }
     }
@@ -464,17 +389,17 @@ pub enum Instruction {
 
     // Bit operations
     /// Test if bit n is set in an 8-bit register.
-    BitReg8 { reg: Reg8, bit: BitPosition },
+    BitReg8 { reg: Reg8, bit: BitShift8 },
     /// Test if bit n is set in the byte at the address given by a 16-bit register.
-    BitMem16 { reg: Reg16, bit: BitPosition },
+    BitMem16 { reg: Reg16, bit: BitShift8 },
     /// Reset bit n is set in an 8-bit register.
-    ResReg8 { reg: Reg8, bit: BitPosition },
+    ResReg8 { reg: Reg8, bit: BitShift8 },
     /// Reset bit n is set in the byte at the address given by a 16-bit register.
-    ResMem16 { reg: Reg16, bit: BitPosition },
+    ResMem16 { reg: Reg16, bit: BitShift8 },
     /// Set bit n is set in an 8-bit register.
-    SetReg8 { reg: Reg8, bit: BitPosition },
+    SetReg8 { reg: Reg8, bit: BitShift8 },
     /// Set bit n is set in the byte at the address given by a 16-bit register.
-    SetMem16 { reg: Reg16, bit: BitPosition },
+    SetMem16 { reg: Reg16, bit: BitShift8 },
 }
 
 impl core::fmt::Display for Instruction {
@@ -1271,7 +1196,8 @@ impl Instruction {
         value: Option<(usize, u8)>,
     ) -> Result<(), core::fmt::Error> {
         if let Some((address, byte)) = value {
-            let target = address.saturating_add_signed(byte as isize);
+            let base_pc = address.wrapping_sub(1);
+            let target = base_pc.saturating_add_signed((byte as i8) as isize);
             write!(
                 buffer,
                 "{}{:04x}",
@@ -1641,13 +1567,13 @@ mod _opcode_macros {
         ($op:ident, reg $reg:ident, pos $pos:ident) => {
             Instruction::$op {
                 reg: Reg8::$reg,
-                bit: BitPosition::$pos,
+                bit: BitShift8::$pos,
             }
         };
         ($op:ident, mem $reg:ident, pos $pos:ident) => {
             Instruction::$op {
                 reg: Reg16::$reg,
-                bit: BitPosition::$pos,
+                bit: BitShift8::$pos,
             }
         };
     }

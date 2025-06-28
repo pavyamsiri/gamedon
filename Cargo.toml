@@ -1,11 +1,13 @@
 [workspace]
-members = [ "crates/gamedon_bus", "crates/gamedon_cpu", "crates/gamedon_opcode"]
+members = [ "crates/gamedon_bits", "crates/gamedon_bus", "crates/gamedon_cpu", "crates/gamedon_opcode"]
 resolver = "2"
 
 [workspace.dependencies]
 owo-colors = { version = "4.2.2", features = ["supports-colors"] }
 thiserror = "2.0.12"
-
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19" }
+gamedon_bits = { path = "crates/gamedon_bits" }
 gamedon_bus = { path = "crates/gamedon_bus" }
 gamedon_opcode = { path = "crates/gamedon_opcode" }
 

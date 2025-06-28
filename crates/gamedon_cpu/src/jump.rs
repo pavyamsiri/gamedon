@@ -19,7 +19,7 @@ impl Cpu {
 
 // Absolute jumps
 impl Cpu {
-    pub(crate) const fn jump_absolute(
+    pub(crate) fn jump_absolute(
         &mut self,
         condition: Option<Condition>,
         bus: &MemoryBus,
@@ -30,10 +30,7 @@ impl Cpu {
         };
 
         if should_jump {
-            let address = match self.read_imm16(bus) {
-                Ok(address) => address,
-                Err(err) => return Err(err),
-            };
+            let address = self.read_imm16(bus)?;
             Ok((NextPc::Absolute(address), FOUR_M_STATE))
         } else {
             Ok((NextPc::Relative(3), THREE_M_STATE))
@@ -48,7 +45,7 @@ impl Cpu {
 
 // Relative jumps
 impl Cpu {
-    pub(crate) const fn jump_relative(
+    pub(crate) fn jump_relative(
         &mut self,
         condition: Option<Condition>,
         bus: &MemoryBus,
@@ -59,11 +56,8 @@ impl Cpu {
         };
 
         if should_jump {
-            let offset = match self.read_i8(bus) {
-                Ok(offset) => offset,
-                Err(err) => return Err(err),
-            };
-            Ok((NextPc::Relative(offset as i16), THREE_M_STATE))
+            let offset = self.read_i8(bus)? + 2;
+            Ok((NextPc::Relative(i16::from(offset)), THREE_M_STATE))
         } else {
             Ok((NextPc::Relative(2), TWO_M_STATE))
         }
@@ -72,15 +66,12 @@ impl Cpu {
 
 // Call, return and misc
 impl Cpu {
-    pub(crate) const fn rst(
+    pub(crate) fn rst(
         &mut self,
         address: RstAddress,
         bus: &mut MemoryBus,
     ) -> Result<(NextPc, usize), ExecuteError> {
-        let next_pc = match self.calculate_offset_pc(1) {
-            Ok(next_pc) => next_pc,
-            Err(err) => return Err(err),
-        };
+        let next_pc = self.calculate_offset_pc(1)?;
         match self.push_raw(next_pc, bus) {
             Ok(()) => {}
             Err(err) => return Err(err),
@@ -89,7 +80,7 @@ impl Cpu {
         Ok((NextPc::Absolute(address), FOUR_M_STATE))
     }
 
-    pub(crate) const fn call(
+    pub(crate) fn call(
         &mut self,
         condition: Option<Condition>,
         bus: &mut MemoryBus,
@@ -99,14 +90,8 @@ impl Cpu {
             None => true,
         };
         if should_jump {
-            let next_pc = match self.calculate_offset_pc(1) {
-                Ok(next_pc) => next_pc,
-                Err(err) => return Err(err),
-            };
-            let address = match self.read_imm16(bus) {
-                Ok(address) => address,
-                Err(err) => return Err(err),
-            };
+            let next_pc = self.calculate_offset_pc(3)?;
+            let address = self.read_imm16(bus)?;
 
             match self.push_raw(next_pc, bus) {
                 Ok(()) => {}
@@ -118,7 +103,7 @@ impl Cpu {
         }
     }
 
-    pub(crate) const fn ret(
+    pub(crate) fn ret(
         &mut self,
         condition: Option<Condition>,
         enable_interrupts: bool,
@@ -134,10 +119,7 @@ impl Cpu {
         }
 
         if should_jump {
-            let address = match self.pop_raw(bus) {
-                Ok(address) => address,
-                Err(err) => return Err(err),
-            };
+            let address = self.pop_raw(bus)?;
 
             Ok((NextPc::Absolute(address), num_cycles_if_jump))
         } else {
