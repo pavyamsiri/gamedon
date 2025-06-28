@@ -14,12 +14,15 @@ pub enum BootRom {
     Cgb,
     Agb0,
     Agb,
+    // Debug
+    Doctor,
 }
 
 impl Cpu {
     pub fn boot(&mut self, rom: BootRom) {
         match rom {
             BootRom::Dmg => self.boot_dmg(),
+            BootRom::Doctor => self.boot_doctor(),
             _ => {
                 // TODO(pavyamsiri): Implement boot roms
                 todo!()
@@ -33,6 +36,27 @@ impl Cpu {
         self.registers.set_subtraction_flag(false);
         self.registers.set_half_carry_flag(false);
         self.registers.set_carry_flag(false);
+
+        // Set 8-bit register values
+        self.registers.set_a(0x01);
+        self.registers.set_b(0x00);
+        self.registers.set_c(0x13);
+        self.registers.set_d(0x00);
+        self.registers.set_e(0xD8);
+        self.registers.set_h(0x01);
+        self.registers.set_l(0x4D);
+
+        // Set 16-bit register values
+        self.registers.set_pc(0x0100);
+        self.registers.set_sp(0xFFFE);
+    }
+
+    fn boot_doctor(&mut self) {
+        // Set register flags
+        self.registers.set_zero_flag(true);
+        self.registers.set_subtraction_flag(false);
+        self.registers.set_half_carry_flag(true);
+        self.registers.set_carry_flag(true);
 
         // Set 8-bit register values
         self.registers.set_a(0x01);

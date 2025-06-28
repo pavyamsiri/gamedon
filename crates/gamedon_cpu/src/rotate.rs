@@ -1,6 +1,4 @@
-use crate::{
-    Cpu, ExecuteError, FOUR_M_STATE, NextPc, ONE_M_STATE, THREE_M_STATE, TWO_M_STATE, WithCarry,
-};
+use crate::{Cpu, ExecuteError, NextPc, ONE_M_STATE, THREE_M_STATE, WithCarry};
 use gamedon_bus::MemoryBus;
 use gamedon_opcode::{Reg8, Reg16};
 
@@ -20,7 +18,7 @@ impl Cpu {
         let new_value = (value << 1) | fill_bit;
 
         // Store old bit 7 in carry flag
-        self.registers.set_carry_flag(old_bit == 0x1);
+        self.registers.set_carry_flag(old_bit != 0x0);
 
         // Set zero flag if result is zero else reset
         self.registers.set_zero_flag(new_value == 0);
@@ -42,7 +40,7 @@ impl Cpu {
         let new_value = (value >> 1) | fill_bit;
 
         // Store old bit 7 in carry flag
-        self.registers.set_carry_flag(old_bit == 0x1);
+        self.registers.set_carry_flag(old_bit != 0x0);
 
         // Set zero flag if result is zero else reset
         self.registers.set_zero_flag(new_value == 0);
@@ -60,7 +58,7 @@ impl Cpu {
         let new_value = (value << 1) & 0xFE;
 
         // Store old bit 7 in carry flag
-        self.registers.set_carry_flag(old_bit == 0x1);
+        self.registers.set_carry_flag(old_bit != 0x0);
 
         // Set zero flag if result is zero else reset
         self.registers.set_zero_flag(new_value == 0);
@@ -82,7 +80,7 @@ impl Cpu {
         let new_value = (value >> 1) | fill_bit;
 
         // Store old bit 7 in carry flag
-        self.registers.set_carry_flag(old_bit == 0x1);
+        self.registers.set_carry_flag(old_bit != 0x0);
 
         // Set zero flag if result is zero else reset
         self.registers.set_zero_flag(new_value == 0);

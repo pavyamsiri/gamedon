@@ -39,9 +39,11 @@ fn main() {
         bus.write_byte_raw(index, byte).unwrap();
     }
 
-    cpu.boot(BootRom::Dmg);
+    cpu.boot(BootRom::Doctor);
+    cpu.debug_flag = false;
+    let MAX_INSTRUCTIONS: usize = if cpu.debug_flag { 900_000 } else { usize::MAX };
 
-    for i in 0..usize::MAX {
+    for i in 0..MAX_INSTRUCTIONS {
         tracing::trace!("INSTRUCTION = {i}");
         let num_m_cycles = cpu.step(&mut bus).expect("not expecting errors.");
         bus.timer_tick(num_m_cycles);
@@ -49,7 +51,9 @@ fn main() {
 
         bus.update_interrupt_requests();
 
-        if let Some(output) = bus.has_new_serial_output() {
+        if let Some(output) = bus.has_new_serial_output()
+            && !cpu.debug_flag
+        {
             let serial_string = String::from_utf8_lossy(output);
             tracing::debug!("Serial = {}", serial_string);
         }

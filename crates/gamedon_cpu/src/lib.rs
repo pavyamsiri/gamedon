@@ -74,7 +74,7 @@ pub struct Cpu {
     // Debug
     paused: bool,
     step_count: usize,
-    debug_flag: bool,
+    pub debug_flag: bool,
 
     breakpoints: Map<u16, BreakPointCondition>,
 }
@@ -130,6 +130,46 @@ impl Cpu {
 
         // Update program counter
         self.registers.set_pc(next_pc);
+
+        if self.debug_flag && !matches!(inst, Instruction::Prefix) {
+            let mut inst_display = String::new();
+            inst.format(
+                &mut inst_display,
+                &mut bus
+                    .iter()
+                    .enumerate()
+                    .skip(self.registers.get_pc() as usize + 1),
+                opcode,
+            )
+            .unwrap();
+            tracing::trace!("Address: {:#06X} = {}", current_address, inst_display);
+            let pc_mem = [
+                bus.read_byte(self.registers.get_pc()).unwrap(),
+                bus.read_byte(self.registers.get_pc().wrapping_add(1))
+                    .unwrap(),
+                bus.read_byte(self.registers.get_pc().wrapping_add(2))
+                    .unwrap(),
+                bus.read_byte(self.registers.get_pc().wrapping_add(3))
+                    .unwrap(),
+            ];
+            println!(
+                "A:{:02X} F:{:02X} B:{:02X} C:{:02X} D:{:02X} E:{:02X} H:{:02X} L:{:02X} SP:{:04X} PC:{:04X} PCMEM:{:02X},{:02X},{:02X},{:02X}",
+                self.registers.get_a(),
+                self.registers.get_f(),
+                self.registers.get_b(),
+                self.registers.get_c(),
+                self.registers.get_d(),
+                self.registers.get_e(),
+                self.registers.get_h(),
+                self.registers.get_l(),
+                self.registers.get_sp(),
+                self.registers.get_pc(),
+                pc_mem[0],
+                pc_mem[1],
+                pc_mem[2],
+                pc_mem[3]
+            )
+        }
 
         Ok(num_cycles)
     }
@@ -196,18 +236,30 @@ impl Cpu {
             Instruction::Cpl => Ok(self.cpl()),
             Instruction::Rlca => {
                 self.rotate_left_reg8(Reg8::A, WithCarry::No);
+                self.registers.set_zero_flag(false);
+                self.registers.set_subtraction_flag(false);
+                self.registers.set_half_carry_flag(false);
                 Ok((NextPc::Relative(1), ONE_M_STATE))
             }
             Instruction::Rla => {
                 self.rotate_left_reg8(Reg8::A, WithCarry::Yes);
+                self.registers.set_zero_flag(false);
+                self.registers.set_subtraction_flag(false);
+                self.registers.set_half_carry_flag(false);
                 Ok((NextPc::Relative(1), ONE_M_STATE))
             }
             Instruction::Rrca => {
                 self.rotate_right_reg8(Reg8::A, WithCarry::No);
+                self.registers.set_zero_flag(false);
+                self.registers.set_subtraction_flag(false);
+                self.registers.set_half_carry_flag(false);
                 Ok((NextPc::Relative(1), ONE_M_STATE))
             }
             Instruction::Rra => {
                 self.rotate_right_reg8(Reg8::A, WithCarry::Yes);
+                self.registers.set_zero_flag(false);
+                self.registers.set_subtraction_flag(false);
+                self.registers.set_half_carry_flag(false);
                 Ok((NextPc::Relative(1), ONE_M_STATE))
             }
             Instruction::LdReg8Reg8 { dst, src } => Ok(self.ld_reg8_reg8(dst, src)),
@@ -443,30 +495,29 @@ impl Cpu {
     }
 
     const fn daa(&mut self) -> (NextPc, usize) {
-        let mut value = self.registers.get_a();
-        // After an addition
         if self.registers.get_subtraction_flag() {
             if self.registers.get_carry_flag() {
-                value = value.wrapping_sub(0x60);
+                self.registers
+                    .set_a(self.registers.get_a().wrapping_sub(0x60));
             }
             if self.registers.get_half_carry_flag() {
-                value = value.wrapping_sub(0x6);
+                self.registers
+                    .set_a(self.registers.get_a().wrapping_sub(0x06));
             }
         } else {
-            if self.registers.get_carry_flag() || value > 0x99 {
-                value = value.wrapping_add(0x60);
+            if self.registers.get_carry_flag() || self.registers.get_a() > 0x99 {
+                self.registers
+                    .set_a(self.registers.get_a().wrapping_add(0x60));
                 self.registers.set_carry_flag(true);
             }
-            if self.registers.get_half_carry_flag() || (value & 0xF) > 0x09 {
-                value = value.wrapping_add(0x6);
+            if self.registers.get_half_carry_flag() || (self.registers.get_a() & 0x0f) > 0x09 {
+                self.registers
+                    .set_a(self.registers.get_a().wrapping_add(0x06));
             }
         }
 
-        self.registers.set_zero_flag(value == 0);
+        self.registers.set_zero_flag(self.registers.get_a() == 0);
         self.registers.set_half_carry_flag(false);
-
-        self.registers.set_a(value);
-
         (NextPc::Relative(1), ONE_M_STATE)
     }
 }
@@ -530,5 +581,122 @@ impl Cpu {
         self.push_raw(value, bus)?;
 
         Ok((NextPc::Relative(1), FOUR_M_STATE))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gamedon_bus::MemoryBus;
+
+    use crate::{BootRom, Cpu};
+
+    #[test]
+    fn daa_add_test() {
+        // 0x27
+        let mut cpu = Cpu::default();
+        cpu.boot(BootRom::Dmg);
+        let mut bus = MemoryBus::default();
+        cpu.registers.set_a(0x10);
+        cpu.registers.set_b(0x25);
+        cpu.registers.set_pc(0xC000);
+        bus.write_byte_raw(0xC000, 0x80).unwrap();
+        bus.write_byte_raw(0xC001, 0x27).unwrap();
+        cpu.step(&mut bus).unwrap();
+        cpu.step(&mut bus).unwrap();
+
+        assert_eq!(0xC002, cpu.registers.get_pc());
+
+        // Result
+        let byte = cpu.registers.get_a();
+        assert_eq!(0x35, byte);
+
+        // Check flags
+        assert!(!cpu.registers.get_zero_flag());
+        assert!(!cpu.registers.get_subtraction_flag());
+        assert!(!cpu.registers.get_half_carry_flag());
+        assert!(!cpu.registers.get_carry_flag());
+    }
+
+    #[test]
+    fn daa_adc_test() {
+        // 0x27
+        let mut cpu = Cpu::default();
+        cpu.boot(BootRom::Dmg);
+        let mut bus = MemoryBus::default();
+        cpu.registers.set_a(0x10);
+        cpu.registers.set_b(0x25);
+        cpu.registers.set_carry_flag(true);
+        cpu.registers.set_pc(0xC000);
+        bus.write_byte_raw(0xC000, 0x88).unwrap();
+        bus.write_byte_raw(0xC001, 0x27).unwrap();
+        cpu.step(&mut bus).unwrap();
+        cpu.step(&mut bus).unwrap();
+
+        assert_eq!(0xC002, cpu.registers.get_pc());
+
+        // Result
+        let byte = cpu.registers.get_a();
+        assert_eq!(0x36, byte);
+
+        // Check flags
+        assert!(!cpu.registers.get_zero_flag());
+        assert!(!cpu.registers.get_subtraction_flag());
+        assert!(!cpu.registers.get_half_carry_flag());
+        assert!(!cpu.registers.get_carry_flag());
+    }
+
+    #[test]
+    fn daa_sub_test() {
+        // 0x27
+        let mut cpu = Cpu::default();
+        cpu.boot(BootRom::Dmg);
+        let mut bus = MemoryBus::default();
+        cpu.registers.set_a(0x25);
+        cpu.registers.set_b(0x10);
+        cpu.registers.set_pc(0xC000);
+        bus.write_byte_raw(0xC000, 0x90).unwrap();
+        bus.write_byte_raw(0xC001, 0x27).unwrap();
+        cpu.step(&mut bus).unwrap();
+        cpu.step(&mut bus).unwrap();
+
+        assert_eq!(0xC002, cpu.registers.get_pc());
+
+        // Result
+        let byte = cpu.registers.get_a();
+        assert_eq!(0x15, byte);
+
+        // Check flags
+        assert!(!cpu.registers.get_zero_flag());
+        assert!(cpu.registers.get_subtraction_flag());
+        assert!(!cpu.registers.get_half_carry_flag());
+        assert!(!cpu.registers.get_carry_flag());
+    }
+
+    #[test]
+    fn daa_sbc_test() {
+        // 0x27
+        let mut cpu = Cpu::default();
+        cpu.boot(BootRom::Dmg);
+        let mut bus = MemoryBus::default();
+        cpu.registers.set_a(0x25);
+        cpu.registers.set_b(0x10);
+        cpu.registers.set_carry_flag(true);
+        cpu.registers.set_pc(0xC000);
+        bus.write_byte_raw(0xC000, 0x98).unwrap();
+        bus.write_byte_raw(0xC001, 0x27).unwrap();
+        cpu.step(&mut bus).unwrap();
+        cpu.step(&mut bus).unwrap();
+
+        assert_eq!(0xC002, cpu.registers.get_pc());
+
+        // Result
+        let byte = cpu.registers.get_a();
+        assert_eq!(0x14, byte);
+
+        // Check flags
+        assert!(!cpu.registers.get_zero_flag());
+        assert!(cpu.registers.get_subtraction_flag());
+        assert!(!cpu.registers.get_half_carry_flag());
+        assert!(!cpu.registers.get_carry_flag());
     }
 }

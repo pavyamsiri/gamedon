@@ -54,6 +54,11 @@ impl Registers {
     }
 
     #[inline]
+    pub const fn get_f(&self) -> u8 {
+        self.flags.bits()
+    }
+
+    #[inline]
     pub const fn get_b(&self) -> u8 {
         (self.bc >> 8) as u8
     }

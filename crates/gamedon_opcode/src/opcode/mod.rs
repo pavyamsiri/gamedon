@@ -1690,7 +1690,7 @@ impl Instruction {
             // 0xFA: 8-bit load from immediate 16-bit address into register
             0xFA => ld8!(reg A, addr16),
             // 0xF8: 16-bit register load from sp with signed offset
-            0xF8 => ld16!(reg SP, sp+-),
+            0xF8 => ld16!(reg HL, sp+-),
             // 0xF9: 16-bit register load
             0xF9 => ld16!(reg SP, reg HL),
             // increments and decrements

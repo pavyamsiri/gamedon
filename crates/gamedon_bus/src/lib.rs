@@ -87,6 +87,8 @@ impl BusReader for MemoryBus {
             0xE000..=0xFDFF => self.read_byte(address - 0x2000)?,
             // Serial
             0xFF01 | 0xFF02 => self.serial.read_byte(address)?,
+            // HACK(pavyamsiri): Hard return 0x90 for now so I can debug with doctor
+            0xFF44 => 0x90,
             _ => self.rom[address as usize],
         };
 
