@@ -5,6 +5,7 @@ mod timer;
 
 use interrupts::Interrupts;
 use ram::RamArea;
+use serial::Serial;
 use thiserror::Error;
 
 pub use interrupts::Interrupt;
@@ -48,6 +49,7 @@ pub struct MemoryBus {
     interrupts: Interrupts,
     timer: Timer,
     working_ram: RamArea<0x2000, 0xC000>,
+    serial: Serial,
 }
 
 impl core::fmt::Debug for MemoryBus {
@@ -66,6 +68,7 @@ impl core::default::Default for MemoryBus {
             interrupts: Interrupts::default(),
             timer: Timer::default(),
             working_ram: RamArea::default(),
+            serial: Serial::default(),
         }
     }
 }
@@ -82,6 +85,8 @@ impl BusReader for MemoryBus {
             0xC000..=0xDFFF => self.working_ram.read_byte(address)?,
             // Echo RAM
             0xE000..=0xFDFF => self.read_byte(address - 0x2000)?,
+            // Serial
+            0xFF01 | 0xFF02 => self.serial.read_byte(address)?,
             _ => self.rom[address as usize],
         };
 
@@ -98,6 +103,15 @@ impl BusWriter for MemoryBus {
 
 impl MemoryBus {
     #[inline]
+    pub fn has_new_serial_output(&mut self) -> Option<&[u8]> {
+        if self.serial.has_shown() {
+            None
+        } else {
+            Some(self.serial.show())
+        }
+    }
+
+    #[inline]
     pub fn write_byte_raw(&mut self, address: u16, value: u8) -> Result<(), WriteByteError> {
         match address {
             // Interrupts
@@ -110,6 +124,8 @@ impl MemoryBus {
             0xC000..=0xDFFF => self.working_ram.write_byte(address, value)?,
             // Echo RAM
             0xE000..=0xFDFF => self.write_byte_raw(address - 0x2000, value)?,
+            // Serial
+            0xFF01 | 0xFF02 => self.serial.write_byte(address, value)?,
             _ => {
                 self.rom[address as usize] = value;
             }
@@ -159,8 +175,16 @@ impl MemoryBus {
         self.timer.batch_tick(num_m_cycles);
     }
 
+    pub fn serial_tick(&mut self, num_m_cycles: usize) {
+        self.serial.batch_tick(num_m_cycles);
+    }
+
     pub fn update_interrupt_requests(&mut self) {
         if let Some(interrupt) = self.timer.get_interrupt_request() {
+            self.interrupts.set_request(interrupt);
+        }
+
+        if let Some(interrupt) = self.serial.get_interrupt_request() {
             self.interrupts.set_request(interrupt);
         }
     }

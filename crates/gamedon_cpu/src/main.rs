@@ -1,10 +1,11 @@
-use gamedon_bus::MemoryBus;
+use gamedon_bus::{BusReader, BusWriter, MemoryBus};
 use gamedon_cpu::{BootRom, Cpu};
 use std::env;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 use tracing::level_filters::LevelFilter;
+use tracing::trace;
 
 fn read_binary_file(path: impl AsRef<Path>) -> Result<Vec<u8>, String> {
     fn read(path: &Path) -> Result<Vec<u8>, String> {
@@ -21,7 +22,7 @@ fn read_binary_file(path: impl AsRef<Path>) -> Result<Vec<u8>, String> {
 
 fn main() {
     tracing_subscriber::fmt()
-        .with_max_level(LevelFilter::WARN)
+        .with_max_level(LevelFilter::DEBUG)
         .init();
 
     let args: Vec<_> = env::args().collect();
@@ -40,11 +41,19 @@ fn main() {
 
     cpu.boot(BootRom::Dmg);
 
-    for _ in 0..usize::MAX {
+    for i in 0..usize::MAX {
+        tracing::trace!("INSTRUCTION = {i}");
         let num_m_cycles = cpu.step(&mut bus).expect("not expecting errors.");
         bus.timer_tick(num_m_cycles);
+        bus.serial_tick(num_m_cycles);
 
         bus.update_interrupt_requests();
+
+        if let Some(output) = bus.has_new_serial_output() {
+            let serial_string = String::from_utf8_lossy(output);
+            tracing::debug!("Serial = {}", serial_string);
+        }
+
         if cpu.paused() {
             break;
         }
