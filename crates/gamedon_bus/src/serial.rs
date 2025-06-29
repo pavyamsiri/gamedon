@@ -46,6 +46,10 @@ impl Serial {
         self.has_shown = true;
         &self.output
     }
+
+    pub(crate) fn output(&self) -> &[u8] {
+        &self.output
+    }
 }
 
 impl Peripheral for Serial {

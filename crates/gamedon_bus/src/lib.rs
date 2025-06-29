@@ -92,6 +92,11 @@ impl BusReader for MemoryBus {
             _ => self.rom[address as usize],
         };
 
+        tracing::trace!(
+            address = address,
+            value = value,
+            "Read {value:#04X} at {address:#06X}"
+        );
         Ok(value)
     }
 }
@@ -99,6 +104,11 @@ impl BusReader for MemoryBus {
 impl BusWriter for MemoryBus {
     #[inline]
     fn write_byte(&mut self, address: u16, value: u8) -> Result<(), WriteByteError> {
+        tracing::trace!(
+            address = address,
+            value = value,
+            "Writing {value:#04X} to {address:#06X}"
+        );
         self.write_byte_raw(address, value)
     }
 }
@@ -111,6 +121,11 @@ impl MemoryBus {
         } else {
             Some(self.serial.show())
         }
+    }
+
+    #[inline]
+    pub fn get_serial_output(&self) -> &[u8] {
+        self.serial.output()
     }
 
     #[inline]
@@ -163,6 +178,14 @@ impl MemoryBus {
     #[inline]
     pub const fn reset_interrupt_request(&mut self, interrupt: Interrupt) {
         self.interrupts.reset_request(interrupt);
+    }
+
+    #[inline]
+    pub const fn iter_from(&self, address: u16) -> MemoryBusIterator<'_> {
+        MemoryBusIterator {
+            bus: self,
+            address: Some(address),
+        }
     }
 
     #[inline]

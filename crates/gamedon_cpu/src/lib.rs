@@ -5,11 +5,11 @@ mod jump;
 mod load;
 mod rotate;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use alu::WithCarry;
 use gamedon_bus::{BusReader, BusWriter, MemoryBus, ReadByteError, WriteByteError};
-use gamedon_opcode::{Instruction, Reg8, Reg16, Registers};
+use gamedon_opcode::{Instruction, MicroOp, Reg8, Reg16, Registers};
 use rotate::ShiftOption;
 use thiserror::Error;
 
@@ -61,22 +61,45 @@ impl IncDirection {
 pub enum BreakPointCondition {
     #[default]
     RunInto,
+    AfterRun,
+    WhenOp(u16),
+}
+
+#[derive(Debug, Default)]
+struct OpPipeline {
+    queue: VecDeque<MicroOp>,
+    address: u16,
+    opcode: u16,
+}
+
+impl OpPipeline {
+    const fn is_prefix_op(&self) -> bool {
+        (self.opcode & 0xFF00) == 0xCB00
+    }
 }
 
 #[derive(Debug, Default)]
 pub struct Cpu {
-    registers: Registers,
-    is_halted: bool,
+    addr: u16,
+    breakpoints: Map<u16, BreakPointCondition>,
+    conditional_mode: Option<bool>,
+    pub debug_flag: bool,
     ime: bool,
-    set_ime: bool,
-    is_prefix: bool,
 
+    is_halted: bool,
+
+    is_prefix: bool,
+    op_pipeline: OpPipeline,
     // Debug
     paused: bool,
-    step_count: usize,
-    pub debug_flag: bool,
 
-    breakpoints: Map<u16, BreakPointCondition>,
+    registers: Registers,
+
+    set_ime: bool,
+    step_count: usize,
+
+    // Internal registers
+    tmp1: u8,
 }
 
 // Debug
@@ -85,13 +108,73 @@ impl Cpu {
         self.breakpoints.insert(address, condition);
     }
 
-    pub fn paused(&self) -> bool {
+    pub fn is_paused(&self) -> bool {
         self.paused
+    }
+
+    pub fn pause(&mut self) {
+        self.paused = true;
+    }
+
+    pub fn resume(&mut self) {
+        self.paused = false;
     }
 }
 
 // Executor
 impl Cpu {
+    fn handle_breakpoints_before_execution(&mut self) {
+        let current_address = self.registers.get_pc();
+        let Some(condition) = self.breakpoints.get(&current_address) else {
+            return;
+        };
+        match condition {
+            BreakPointCondition::RunInto => self.paused = true,
+            BreakPointCondition::AfterRun => {}
+            BreakPointCondition::WhenOp(_) => {}
+        }
+    }
+
+    fn handle_breakpoints_after_execution(&mut self) {
+        let current_address = self.registers.get_pc();
+        let Some(condition) = self.breakpoints.get(&current_address) else {
+            return;
+        };
+        match condition {
+            BreakPointCondition::RunInto => {}
+            BreakPointCondition::AfterRun => self.paused = true,
+            BreakPointCondition::WhenOp(opcode) => {
+                if self.op_pipeline.opcode == *opcode {
+                    self.paused = true;
+                }
+            }
+        }
+    }
+
+    fn print_doctor_status(&self, bus: &impl BusReader) -> Result<String, ExecuteError> {
+        let byte1 = bus.read_byte(self.registers.get_pc())?;
+        let byte2 = bus.read_byte(self.registers.get_pc() + 1)?;
+        let byte3 = bus.read_byte(self.registers.get_pc() + 2)?;
+        let byte4 = bus.read_byte(self.registers.get_pc() + 3)?;
+        Ok(format!(
+            "A:{:02X} F:{:02X} B:{:02X} C:{:02X} D:{:02X} E:{:02X} H:{:02X} L:{:02X} SP:{:04X} PC:{:04X} PCMEM:{:02X},{:02X},{:02X},{:02X}",
+            self.registers.get_a(),
+            self.registers.get_f(),
+            self.registers.get_b(),
+            self.registers.get_c(),
+            self.registers.get_d(),
+            self.registers.get_e(),
+            self.registers.get_h(),
+            self.registers.get_l(),
+            self.registers.get_sp(),
+            self.registers.get_pc(),
+            byte1,
+            byte2,
+            byte3,
+            byte4,
+        ))
+    }
+
     const fn calculate_offset_pc(&self, offset: i16) -> Result<u16, ExecuteError> {
         let pc = self.registers.get_pc();
         match pc.checked_add_signed(offset) {
@@ -108,70 +191,341 @@ impl Cpu {
         // Fetch instruction
         let current_address = self.registers.get_pc();
 
-        if let Some(condition) = self.breakpoints.get(&current_address) {
-            match condition {
-                BreakPointCondition::RunInto => self.paused = true,
-            }
-        }
+        self.handle_breakpoints_before_execution();
 
         if self.paused {
             return Ok(0);
         }
 
-        let opcode = bus.read_byte(current_address)?;
-        let inst = if self.is_prefix {
-            self.is_prefix = false;
-            Instruction::decode_prefix(opcode)
-        } else {
-            Instruction::decode_no_prefix(opcode)
-        };
+        // Not currently executing an instruction
+        if self.op_pipeline.queue.is_empty() {
+            // CPU is halted, only wake up when there are pending interrupts.
+            if self.is_halted {
+                self.is_halted = !bus.is_pending_interrupts();
+                return Ok(1);
+            }
 
-        let (next_pc, num_cycles) = self.execute(inst, bus)?;
-
-        // Update program counter
-        self.registers.set_pc(next_pc);
-
-        if self.debug_flag && !matches!(inst, Instruction::Prefix) {
-            let mut inst_display = String::new();
-            inst.format(
-                &mut inst_display,
-                &mut bus
-                    .iter()
+            // If the Interrupt Master Enable is set
+            if let Some(interrupt) = bus.get_pending_interrupt()
+                && self.ime
+            {
+                bus.reset_interrupt_request(interrupt);
+                self.ime = false;
+                Instruction::encode_interrupt_request(
+                    &mut self.op_pipeline.queue,
+                    interrupt.to_address(),
+                );
+            } else {
+                let opcode = bus.read_byte(current_address)?;
+                let inst = if self.is_prefix {
+                    self.op_pipeline.opcode = 0xCB00 | u16::from(opcode);
+                    self.is_prefix = false;
+                    Instruction::decode_prefix(opcode)
+                } else {
+                    self.op_pipeline.opcode = u16::from(opcode);
+                    Instruction::decode_no_prefix(opcode)
+                };
+                let mut it = bus
+                    .iter_from(current_address + 1)
                     .enumerate()
-                    .skip(self.registers.get_pc() as usize + 1),
-                opcode,
-            )
-            .unwrap();
-            tracing::trace!("Address: {:#06X} = {}", current_address, inst_display);
-            let pc_mem = [
-                bus.read_byte(self.registers.get_pc()).unwrap(),
-                bus.read_byte(self.registers.get_pc().wrapping_add(1))
-                    .unwrap(),
-                bus.read_byte(self.registers.get_pc().wrapping_add(2))
-                    .unwrap(),
-                bus.read_byte(self.registers.get_pc().wrapping_add(3))
-                    .unwrap(),
-            ];
-            println!(
-                "A:{:02X} F:{:02X} B:{:02X} C:{:02X} D:{:02X} E:{:02X} H:{:02X} L:{:02X} SP:{:04X} PC:{:04X} PCMEM:{:02X},{:02X},{:02X},{:02X}",
-                self.registers.get_a(),
-                self.registers.get_f(),
-                self.registers.get_b(),
-                self.registers.get_c(),
-                self.registers.get_d(),
-                self.registers.get_e(),
-                self.registers.get_h(),
-                self.registers.get_l(),
-                self.registers.get_sp(),
-                self.registers.get_pc(),
-                pc_mem[0],
-                pc_mem[1],
-                pc_mem[2],
-                pc_mem[3]
-            )
+                    .map(|(i, val)| (i + current_address as usize + 1 + i, val));
+                let mut display_str = format!("{current_address:#06X}: ");
+                inst.format(&mut display_str, &mut it, opcode).unwrap();
+                tracing::trace!("{display_str}");
+
+                inst.decompose(&mut self.op_pipeline.queue);
+                self.op_pipeline.address = current_address;
+            }
         }
 
-        Ok(num_cycles)
+        // Clear out ops until yield
+        while let Some(op) = self.op_pipeline.queue.pop_front() {
+            if self.debug_flag {
+                tracing::trace!("\t\tBEFORE");
+                tracing::trace!(
+                    "\t\tAF: {:#06X} |Z={},N={},H={},C={}|, BC: {:#06X}, DE: {:#06X}, HL: {:#06X}, SP: {:#06X}, PC: {:#06X} |TMP1 = {:#04X}, ADDR = {:#06X}| (conditional_mode = {:?})\n",
+                    self.registers.get_af(),
+                    self.registers.get_zero_flag(),
+                    self.registers.get_subtraction_flag(),
+                    self.registers.get_half_carry_flag(),
+                    self.registers.get_carry_flag(),
+                    self.registers.get_bc(),
+                    self.registers.get_de(),
+                    self.registers.get_hl(),
+                    self.registers.get_sp(),
+                    self.registers.get_pc(),
+                    self.tmp1,
+                    self.addr,
+                    self.conditional_mode,
+                );
+            }
+            if let Some(false) = self.conditional_mode {
+                tracing::trace!(
+                    "\t\tSkipping uop ({:#06X}): {op:?} |Flags = {:08b}|...",
+                    self.op_pipeline.address,
+                    self.registers.get_f()
+                );
+                if let MicroOp::EndCondition = op {
+                    self.conditional_mode = None;
+                    continue;
+                }
+            } else {
+                tracing::trace!(
+                    "\t\tExecuting uop ({:#06X}): {op:?} |Flags = {:08b}|",
+                    self.op_pipeline.address,
+                    self.registers.get_f()
+                );
+                match op {
+                    MicroOp::IncPC => {
+                        self.registers
+                            .set_pc(self.registers.get_pc().wrapping_add(1));
+                    }
+                    MicroOp::Yield => break,
+                    MicroOp::Halt => self.is_halted = true,
+                    MicroOp::Stop => todo!(),
+                    MicroOp::SetIME => self.ime = true,
+                    MicroOp::Ei => self.set_ime = true,
+                    MicroOp::Di => self.ime = false,
+                    MicroOp::Daa => {
+                        let _ = self.daa();
+                    }
+                    MicroOp::Invalid => {
+                        return Err(ExecuteError::InvalidOpcode);
+                    }
+                    MicroOp::Scf => {
+                        let _ = self.scf();
+                    }
+                    MicroOp::Ccf => {
+                        let _ = self.ccf();
+                    }
+                    MicroOp::Cpl => {
+                        let _ = self.cpl();
+                    }
+                    MicroOp::FetchPrefix => {
+                        self.is_prefix = true;
+                    }
+                    MicroOp::ReadReg8(reg) => {
+                        self.tmp1 = self.registers.get_reg8(reg);
+                    }
+                    MicroOp::WriteReg8(reg) => {
+                        self.registers.set_reg8(reg, self.tmp1);
+                    }
+                    MicroOp::RotateLeftCarry => {
+                        self.tmp1 = self.alu_rotate_left(self.tmp1, WithCarry::Yes);
+                    }
+                    MicroOp::RotateLeft => {
+                        self.tmp1 = self.alu_rotate_left(self.tmp1, WithCarry::No);
+                    }
+                    MicroOp::RotateRightCarry => {
+                        self.tmp1 = self.alu_rotate_right(self.tmp1, WithCarry::Yes);
+                    }
+                    MicroOp::RotateRight => {
+                        self.tmp1 = self.alu_rotate_right(self.tmp1, WithCarry::No);
+                    }
+                    MicroOp::ReadReg16(reg) => {
+                        self.addr = self.registers.get_reg16(reg);
+                    }
+                    MicroOp::WriteReg16(reg) => {
+                        self.registers.set_reg16(reg, self.addr);
+                    }
+                    MicroOp::ReadPC => {
+                        self.addr = self.registers.get_pc();
+                    }
+                    MicroOp::WritePC => {
+                        self.registers.set_pc(self.addr);
+                    }
+                    MicroOp::ReadByteFromMem => {
+                        self.tmp1 = bus.read_byte(self.addr)?;
+                    }
+                    MicroOp::ReadByteFromImm => {
+                        self.tmp1 = bus.read_byte(self.registers.get_pc())?;
+                        self.registers
+                            .set_pc(self.registers.get_pc().wrapping_add(1));
+                    }
+                    MicroOp::WriteByteIntoMem => {
+                        bus.write_byte(self.addr, self.tmp1)?;
+                    }
+                    MicroOp::WriteLoByteIntoHighAddr => {
+                        self.addr = 0xFF00 | u16::from(self.tmp1);
+                    }
+                    MicroOp::WriteLoByteIntoAddr => {
+                        self.addr = (self.addr & 0xFF00) | u16::from(self.tmp1);
+                    }
+                    MicroOp::WriteHiByteIntoAddr => {
+                        self.addr = (self.addr & 0x00FF) | u16::from(self.tmp1) << 8;
+                    }
+                    MicroOp::IncSP => {
+                        self.registers
+                            .set_sp(self.registers.get_sp().wrapping_add(1));
+                    }
+                    MicroOp::DecSP => {
+                        self.registers
+                            .set_sp(self.registers.get_sp().wrapping_sub(1));
+                    }
+                    MicroOp::IncAddr => {
+                        self.addr = self.addr.wrapping_add(1);
+                    }
+                    MicroOp::DecAddr => {
+                        self.addr = self.addr.wrapping_sub(1);
+                    }
+                    MicroOp::LoadLoAddr => {
+                        self.tmp1 = (self.addr & 0x00FF) as u8;
+                    }
+                    MicroOp::LoadHiAddr => {
+                        self.tmp1 = ((self.addr & 0xFF00) >> 8) as u8;
+                    }
+                    MicroOp::LoadAddr(value) => {
+                        self.addr = value;
+                    }
+                    MicroOp::BeginCondition { condition } => {
+                        self.conditional_mode = Some(self.evaluate_condition(condition));
+                    }
+                    MicroOp::EndCondition => {
+                        assert!(
+                            self.conditional_mode.is_some(),
+                            "Shouldn't be ending a condition if not in conditional mode."
+                        );
+                        self.conditional_mode = None;
+                    }
+                    MicroOp::AluAddU16I8 => {
+                        self.addr = self.alu_add16_signed(self.addr, self.tmp1 as i8);
+                    }
+                    MicroOp::AluAddU16I8NoFlags => {
+                        self.addr = self.addr.wrapping_add_signed(i16::from(self.tmp1 as i8));
+                    }
+                    MicroOp::AluInc8 => {
+                        self.tmp1 = self.alu_inc8(self.tmp1);
+                    }
+                    MicroOp::AluDec8 => {
+                        self.tmp1 = self.alu_dec8(self.tmp1);
+                    }
+                    MicroOp::AluAddU16Reg16(reg) => {
+                        self.addr = self.alu_add16(self.addr, self.registers.get_reg16(reg));
+                    }
+                    MicroOp::AluAdd8 => {
+                        let value = self.alu_add8(self.registers.get_a(), self.tmp1, WithCarry::No);
+                        self.registers.set_a(value);
+                    }
+                    MicroOp::AluRlc8 => {
+                        self.tmp1 = self.alu_rotate_left(self.tmp1, WithCarry::Yes);
+                    }
+                    MicroOp::AluRrc8 => {
+                        self.tmp1 = self.alu_rotate_right(self.tmp1, WithCarry::Yes);
+                    }
+                    MicroOp::AluRl8 => {
+                        self.tmp1 = self.alu_rotate_left(self.tmp1, WithCarry::No);
+                    }
+                    MicroOp::AluRr8 => {
+                        let old_value = self.tmp1;
+                        self.tmp1 = self.alu_rotate_right(self.tmp1, WithCarry::Yes);
+                    }
+                    MicroOp::AluSla8 => {
+                        self.tmp1 = self.alu_shift_left(self.tmp1);
+                    }
+                    MicroOp::AluSra8 => {
+                        self.tmp1 = self.alu_shift_right(self.tmp1, ShiftOption::Unchanged);
+                    }
+                    MicroOp::AluSrl8 => {
+                        self.tmp1 = self.alu_shift_right(self.tmp1, ShiftOption::Reset);
+                    }
+                    MicroOp::AluSwap8 => {
+                        self.tmp1 = self.alu_swap(self.tmp1);
+                    }
+                    MicroOp::AluBit { bit } => {
+                        self.alu_bit(self.tmp1, bit);
+                    }
+                    MicroOp::AluRes { bit } => {
+                        self.tmp1 = Self::alu_reset(self.tmp1, bit);
+                    }
+                    MicroOp::AluSet { bit } => {
+                        self.tmp1 = Self::alu_set(self.tmp1, bit);
+                    }
+                    MicroOp::AluAdc8 => {
+                        let value =
+                            self.alu_add8(self.registers.get_a(), self.tmp1, WithCarry::Yes);
+                        self.registers.set_a(value);
+                    }
+                    MicroOp::AluSub8 => {
+                        let value = self.alu_sub8(self.registers.get_a(), self.tmp1, WithCarry::No);
+                        self.registers.set_a(value);
+                    }
+                    MicroOp::AluSbc8 => {
+                        let value =
+                            self.alu_sub8(self.registers.get_a(), self.tmp1, WithCarry::Yes);
+                        self.registers.set_a(value);
+                    }
+                    MicroOp::AluAnd8 => {
+                        let value = self.alu_and8(self.registers.get_a(), self.tmp1);
+                        self.registers.set_a(value);
+                    }
+                    MicroOp::AluXor8 => {
+                        let value = self.alu_xor8(self.registers.get_a(), self.tmp1);
+                        self.registers.set_a(value);
+                    }
+                    MicroOp::AluOr8 => {
+                        let value = self.alu_or8(self.registers.get_a(), self.tmp1);
+                        self.registers.set_a(value);
+                    }
+                    MicroOp::AluCp8 => {
+                        let _ = self.alu_sub8(self.registers.get_a(), self.tmp1, WithCarry::No);
+                    }
+                    MicroOp::ReadLoByteFromPC => {
+                        self.tmp1 = (self.registers.get_pc() & 0x00FF) as u8;
+                    }
+                    MicroOp::ReadHiByteFromPC => {
+                        self.tmp1 = ((self.registers.get_pc() & 0xFF00) >> 8) as u8;
+                    }
+                    MicroOp::WriteByteIntoSP => {
+                        bus.write_byte(self.registers.get_sp(), self.tmp1)?;
+                    }
+                    MicroOp::ReadByteFromSP => {
+                        self.tmp1 = bus.read_byte(self.registers.get_sp())?;
+                    }
+                    MicroOp::SetZeroFlag(value) => self.registers.set_zero_flag(value),
+                    MicroOp::SetSubtractionFlag(value) => {
+                        self.registers.set_subtraction_flag(value);
+                    }
+                    MicroOp::SetHalfCarryFlag(value) => self.registers.set_half_carry_flag(value),
+                    MicroOp::SetCarryFlag(value) => self.registers.set_carry_flag(value),
+                }
+            }
+        }
+
+        // Enable IME
+        if self.op_pipeline.queue.is_empty() && self.set_ime {
+            self.ime = true;
+            self.set_ime = false;
+        }
+
+        if self.debug_flag {
+            tracing::trace!(
+                "AF: {:#06X}, BC: {:#06X}, DE: {:#06X}, HL: {:#06X}, SP: {:#06X}, PC: {:#06X} |TMP1 = {:#04X}, ADDR = {:#06X}| (conditional_mode = {:?})\n",
+                self.registers.get_af(),
+                self.registers.get_bc(),
+                self.registers.get_de(),
+                self.registers.get_hl(),
+                self.registers.get_sp(),
+                self.registers.get_pc(),
+                self.tmp1,
+                self.addr,
+                self.conditional_mode,
+            );
+        }
+
+        #[expect(
+            clippy::print_stdout,
+            reason = "Need to print to stdout for certain debugging uses."
+        )]
+        if !self.debug_flag && self.op_pipeline.queue.is_empty() && !self.op_pipeline.is_prefix_op()
+        {
+            println!("{}", self.print_doctor_status(bus)?);
+        }
+
+        if self.op_pipeline.queue.is_empty() {
+            self.handle_breakpoints_after_execution();
+        }
+
+        Ok(1)
     }
 
     pub fn execute(

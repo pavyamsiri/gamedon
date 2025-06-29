@@ -45,6 +45,9 @@ impl Registers {
             Reg8::H => self.get_h(),
             Reg8::L => self.get_l(),
             Reg8::A => self.get_a(),
+            Reg8::P => self.get_p(),
+            Reg8::F => self.get_f(),
+            Reg8::S => self.get_s(),
         }
     }
 
@@ -86,6 +89,16 @@ impl Registers {
     #[inline]
     pub const fn get_l(&self) -> u8 {
         (self.hl & 0x00FF) as u8
+    }
+
+    #[inline]
+    pub const fn get_s(&self) -> u8 {
+        (self.sp >> 8) as u8
+    }
+
+    #[inline]
+    pub const fn get_p(&self) -> u8 {
+        (self.sp & 0x00FF) as u8
     }
 }
 
@@ -193,12 +206,20 @@ impl Registers {
             Reg8::H => self.set_h(value),
             Reg8::L => self.set_l(value),
             Reg8::A => self.set_a(value),
+            Reg8::P => self.set_p(value),
+            Reg8::F => self.set_f(value),
+            Reg8::S => self.set_s(value),
         }
     }
 
     #[inline]
     pub const fn set_a(&mut self, value: u8) {
         self.a = value;
+    }
+
+    #[inline]
+    pub const fn set_f(&mut self, value: u8) {
+        self.flags = RegFlags::from_bits(value);
     }
 
     // High registers
@@ -217,6 +238,11 @@ impl Registers {
         self.hl = (self.hl & 0x00FF) | ((value as u16) << 8);
     }
 
+    #[inline]
+    pub const fn set_s(&mut self, value: u8) {
+        self.sp = (self.sp & 0x00FF) | ((value as u16) << 8);
+    }
+
     // Low registers
     #[inline]
     pub fn set_c(&mut self, value: u8) {
@@ -231,6 +257,11 @@ impl Registers {
     #[inline]
     pub const fn set_l(&mut self, value: u8) {
         self.hl = (self.hl & 0xFF00) | (value as u16);
+    }
+
+    #[inline]
+    pub const fn set_p(&mut self, value: u8) {
+        self.sp = (self.sp & 0xFF00) | (value as u16);
     }
 }
 
@@ -293,6 +324,9 @@ pub enum Reg8 {
     H,
     L,
     A,
+    P,
+    F,
+    S,
 }
 
 impl core::fmt::Display for Reg8 {
@@ -333,6 +367,21 @@ impl core::fmt::Display for Reg8 {
                 "{}",
                 "A".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
             ),
+            Self::P => write!(
+                f,
+                "{}",
+                "P".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
+            Self::F => write!(
+                f,
+                "{}",
+                "F".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
+            Self::S => write!(
+                f,
+                "{}",
+                "S".if_supports_color(Stream::Stdout, |text| text.style(REGISTER_STYLE))
+            ),
         }
     }
 }
@@ -344,6 +393,28 @@ pub enum Reg16 {
     HL,
     SP,
     AF,
+}
+
+impl Reg16 {
+    pub const fn lo(self) -> Reg8 {
+        match self {
+            Reg16::BC => Reg8::C,
+            Reg16::DE => Reg8::E,
+            Reg16::HL => Reg8::L,
+            Reg16::SP => Reg8::P,
+            Reg16::AF => Reg8::F,
+        }
+    }
+
+    pub const fn hi(self) -> Reg8 {
+        match self {
+            Reg16::BC => Reg8::B,
+            Reg16::DE => Reg8::D,
+            Reg16::HL => Reg8::H,
+            Reg16::SP => Reg8::S,
+            Reg16::AF => Reg8::A,
+        }
+    }
 }
 
 impl core::fmt::Display for Reg16 {

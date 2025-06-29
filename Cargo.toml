@@ -1,14 +1,17 @@
 [workspace]
-members = [ "crates/gamedon_bits", "crates/gamedon_bus", "crates/gamedon_cpu", "crates/gamedon_opcode"]
+members = [ "crates/gamedon_bits", "crates/gamedon_bus", "crates/gamedon_cpu", "crates/gamedon_debugger", "crates/gamedon_opcode"]
 resolver = "2"
 
 [workspace.dependencies]
 owo-colors = { version = "4.2.2", features = ["supports-colors"] }
+rustyline = "16.0.0"
 thiserror = "2.0.12"
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19" }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+
 gamedon_bits = { path = "crates/gamedon_bits" }
 gamedon_bus = { path = "crates/gamedon_bus" }
+gamedon_cpu = { path = "crates/gamedon_cpu" }
 gamedon_opcode = { path = "crates/gamedon_opcode" }
 
 [workspace.lints.rust]

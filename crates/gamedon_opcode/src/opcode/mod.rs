@@ -3,6 +3,8 @@ use core::fmt::Write;
 use gamedon_bits::BitShift8;
 use owo_colors::colors::*;
 use owo_colors::{OwoColorize, Stream, Style};
+mod accurate;
+pub use accurate::MicroOp;
 
 const INSTRUCTION_STYLE: Style = Style::new().yellow();
 const ERROR_STYLE: Style = Style::new().red();
