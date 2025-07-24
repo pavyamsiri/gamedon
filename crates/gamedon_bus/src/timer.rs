@@ -11,7 +11,7 @@ enum State {
     Reloading,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(crate) struct Timer {
     /// The system counter where the upper 8 bits are visible as DIV or the divider register
     /// which is mapped to 0xFF04.
@@ -29,6 +29,19 @@ pub(crate) struct Timer {
     state: State,
 }
 
+impl core::default::Default for Timer {
+    fn default() -> Self {
+        Self {
+            sys_counter: HwReg16(0xABCC),
+            tima: HwReg8(0x00),
+            tma: HwReg8(0x00),
+            tac: HwReg8(0x00),
+            pending_interrupt: false,
+            state: State::Normal,
+        }
+    }
+}
+
 impl BusReader for Timer {
     #[inline]
     fn read_byte(&self, address: u16) -> Result<u8, ReadByteError> {
@@ -36,7 +49,7 @@ impl BusReader for Timer {
             0xFF04 => Ok(self.sys_counter.upper()),
             0xFF05 => Ok(self.tima.0),
             0xFF06 => Ok(self.tma.0),
-            0xFF07 => Ok(self.tac.0),
+            0xFF07 => Ok(self.tac.0 | 0xF8),
             _ => Err(ReadByteError::InvalidAddressForPeripheral {
                 name: "Timer",
                 address,
@@ -78,7 +91,9 @@ impl Peripheral for Timer {
 
         // TIMA reload lasts one cycle, so it's ok to reset this
         // at the beginning of each tick.
-        self.state = State::Normal;
+        if matches!(self.state, State::Reloading) {
+            self.state = State::Normal;
+        }
 
         // If a reload was scheduled and not canceled, set the IRQ flag and
         // reload TIMA with TMA. This also causes the timer to enter a cycle
@@ -86,6 +101,7 @@ impl Peripheral for Timer {
         if matches!(self.state, State::ReloadScheduled) {
             self.state = State::Reloading;
             self.tima = self.tma;
+            self.pending_interrupt = true;
         }
 
         let new_value = self.sys_counter.0.wrapping_add(4);

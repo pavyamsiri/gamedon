@@ -11,7 +11,7 @@ mod nombc;
 const KIB_IN_BYTES: usize = 1024;
 
 #[derive(Error, Debug)]
-pub(crate) enum RomLoadError {
+pub enum RomLoadError {
     #[error(
         "The cartridge expected a ROM with a size of {expected} bytes but it was given {actual} bytes."
     )]
@@ -132,6 +132,36 @@ impl MbcKind {
 pub(crate) enum TaggedMbc {
     RomOnly(NoMbc),
     Mbc1(Mbc1),
+}
+
+impl MemoryBankController for TaggedMbc {
+    fn load_rom(&mut self, bytes: &[u8]) -> Result<(), RomLoadError> {
+        match self {
+            TaggedMbc::RomOnly(mbc) => mbc.load_rom(bytes),
+            TaggedMbc::Mbc1(mbc) => mbc.load_rom(bytes),
+        }
+    }
+
+    fn load_ram(&mut self, bytes: &[u8]) -> Result<(), RamLoadError> {
+        match self {
+            TaggedMbc::RomOnly(mbc) => mbc.load_ram(bytes),
+            TaggedMbc::Mbc1(mbc) => mbc.load_ram(bytes),
+        }
+    }
+
+    fn dump_ram(&self) -> Vec<u8> {
+        match self {
+            TaggedMbc::RomOnly(mbc) => mbc.dump_ram(),
+            TaggedMbc::Mbc1(mbc) => mbc.dump_ram(),
+        }
+    }
+
+    fn update(&mut self, num_m_cycles: usize) {
+        match self {
+            TaggedMbc::RomOnly(mbc) => mbc.update(num_m_cycles),
+            TaggedMbc::Mbc1(mbc) => mbc.update(num_m_cycles),
+        }
+    }
 }
 
 impl BusReader for TaggedMbc {

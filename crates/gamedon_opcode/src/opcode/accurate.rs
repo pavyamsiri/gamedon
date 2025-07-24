@@ -178,14 +178,14 @@ impl Instruction {
         match self {
             // Single cycle.
             Instruction::Nop => enqueue!(queue, MicroOp::IncPC, MicroOp::Yield),
-            Instruction::Halt => enqueue!(queue, MicroOp::Halt, MicroOp::IncPC, MicroOp::Yield),
-            Instruction::Stop => enqueue!(queue, MicroOp::Stop, MicroOp::IncPC, MicroOp::Yield),
-            Instruction::Ei => enqueue!(queue, MicroOp::Ei, MicroOp::IncPC, MicroOp::Yield),
-            Instruction::Di => enqueue!(queue, MicroOp::Di, MicroOp::IncPC, MicroOp::Yield),
-            Instruction::Daa => enqueue!(queue, MicroOp::Daa, MicroOp::IncPC, MicroOp::Yield),
-            Instruction::Scf => enqueue!(queue, MicroOp::Scf, MicroOp::IncPC, MicroOp::Yield),
-            Instruction::Ccf => enqueue!(queue, MicroOp::Ccf, MicroOp::IncPC, MicroOp::Yield),
-            Instruction::Cpl => enqueue!(queue, MicroOp::Cpl, MicroOp::IncPC, MicroOp::Yield),
+            Instruction::Halt => enqueue!(queue, MicroOp::IncPC, MicroOp::Halt, MicroOp::Yield),
+            Instruction::Stop => enqueue!(queue, MicroOp::IncPC, MicroOp::Stop, MicroOp::Yield),
+            Instruction::Ei => enqueue!(queue, MicroOp::IncPC, MicroOp::Ei, MicroOp::Yield),
+            Instruction::Di => enqueue!(queue, MicroOp::IncPC, MicroOp::Di, MicroOp::Yield),
+            Instruction::Daa => enqueue!(queue, MicroOp::IncPC, MicroOp::Daa, MicroOp::Yield),
+            Instruction::Scf => enqueue!(queue, MicroOp::IncPC, MicroOp::Scf, MicroOp::Yield),
+            Instruction::Ccf => enqueue!(queue, MicroOp::IncPC, MicroOp::Ccf, MicroOp::Yield),
+            Instruction::Cpl => enqueue!(queue, MicroOp::IncPC, MicroOp::Cpl, MicroOp::Yield),
             Instruction::Rlca => enqueue!(
                 queue,
                 MicroOp::ReadReg8(Reg8::A),
@@ -554,6 +554,7 @@ impl Instruction {
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
+                MicroOp::ReadReg16(Reg16::SP),
                 MicroOp::ReadByteFromImm,
                 MicroOp::AluAddU16I8,
                 MicroOp::Yield,
@@ -709,15 +710,13 @@ impl Instruction {
                 queue,
                 MicroOp::Yield,
                 // Write low byte
-                MicroOp::ReadReg16(Reg16::SP),
-                MicroOp::ReadByteFromMem,
+                MicroOp::ReadByteFromSP,
                 MicroOp::WriteLoByteIntoAddr,
                 // Increment stack pointer
                 MicroOp::IncSP,
                 MicroOp::Yield,
                 // Write high byte
-                MicroOp::ReadReg16(Reg16::SP),
-                MicroOp::ReadByteFromMem,
+                MicroOp::ReadByteFromSP,
                 MicroOp::WriteHiByteIntoAddr,
                 // Increment stack pointer
                 MicroOp::IncSP,
@@ -792,6 +791,7 @@ impl Instruction {
                 MicroOp::Yield,
                 // 3. Write P to --SP
                 MicroOp::DecSP,
+                MicroOp::IncPC,
                 MicroOp::ReadPC,
                 MicroOp::LoadHiAddr,
                 MicroOp::ReadReg16(Reg16::SP),
@@ -1239,19 +1239,16 @@ impl Instruction {
             MicroOp::DecSP,
             MicroOp::ReadPC,
             MicroOp::LoadHiAddr,
-            MicroOp::ReadReg16(Reg16::SP),
-            MicroOp::WriteByteIntoMem,
+            MicroOp::WriteByteIntoSP,
             MicroOp::Yield,
             // 4. Write C to --SP
             MicroOp::DecSP,
             MicroOp::ReadPC,
             MicroOp::LoadLoAddr,
-            MicroOp::ReadReg16(Reg16::SP),
-            MicroOp::WriteByteIntoMem,
-            MicroOp::Yield,
-            // 5. Write interrupt address to PC
+            MicroOp::WriteByteIntoSP,
             MicroOp::LoadAddr(address),
             MicroOp::WritePC,
+            MicroOp::Yield,
             MicroOp::Yield,
         );
     }

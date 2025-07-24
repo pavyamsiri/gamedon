@@ -404,6 +404,12 @@ pub enum Instruction {
     SetMem16 { reg: Reg16, bit: BitShift8 },
 }
 
+impl core::default::Default for Instruction {
+    fn default() -> Self {
+        Self::Nop
+    }
+}
+
 impl core::fmt::Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         macro_rules! write_reg_op {

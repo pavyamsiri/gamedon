@@ -7,7 +7,9 @@ mod timer;
 
 use cartridge::{CartridgeHeader, HeaderLoadError};
 use interrupts::Interrupts;
-use mbc::{MbcCreationError, TaggedMbc};
+use mbc::{
+    MbcCreationError, MemoryBankController, NoMbc, RamSize, RomLoadError, RomSize, TaggedMbc,
+};
 use ram::RamArea;
 use serial::Serial;
 use thiserror::Error;
@@ -33,6 +35,8 @@ pub enum CartridgeLoadError {
     InvalidHeader(#[from] HeaderLoadError),
     #[error(transparent)]
     InvalidMbcSpec(#[from] MbcCreationError),
+    #[error(transparent)]
+    FailedRomLoad(#[from] RomLoadError),
 }
 
 pub trait BusReader {
@@ -63,6 +67,24 @@ pub struct MemoryBus {
     timer: Timer,
     working_ram: RamArea<0x2000, 0xC000>,
     serial: Serial,
+    vram: RamArea<0x2000, 0x8000>,
+    hram: RamArea<0x007F, 0xFF80>,
+}
+
+impl core::default::Default for MemoryBus {
+    fn default() -> Self {
+        let mbc = NoMbc::new(RomSize::Rom32KiB, RamSize::Ram0KiB)
+            .expect("sizes are guaranteed to be supported");
+        Self {
+            mbc: TaggedMbc::RomOnly(mbc),
+            interrupts: Interrupts::default(),
+            timer: Timer::default(),
+            working_ram: RamArea::default(),
+            serial: Serial::default(),
+            vram: RamArea::default(),
+            hram: RamArea::default(),
+        }
+    }
 }
 
 impl core::fmt::Debug for MemoryBus {
@@ -90,8 +112,16 @@ impl BusReader for MemoryBus {
             0xFF01 | 0xFF02 => self.serial.read_byte(address)?,
             // HACK(pavyamsiri): Hard return 0x90 for now so I can debug with doctor
             0xFF44 => 0x90,
+            // VRAM
+            0x8000..=0x9FFF => self.vram.read_byte(address)?,
             // MBC
-            _ => self.mbc.read_byte(address)?,
+            0x0000..=0xBFFF => self.mbc.read_byte(address)?,
+            // High RAM
+            0xFF80..=0xFFFE => self.hram.read_byte(address)?,
+            _ => {
+                tracing::trace!(address = address, "Missing read implementation for address");
+                0xFF
+            }
         };
 
         tracing::trace!(
@@ -122,7 +152,16 @@ impl BusWriter for MemoryBus {
             0xE000..=0xFDFF => self.write_byte(address - 0x2000, value),
             // Serial
             0xFF01 | 0xFF02 => self.serial.write_byte(address, value),
-            _ => self.mbc.write_byte(address, value),
+            // VRAM
+            0x8000..=0x9FFF => self.vram.write_byte(address, value),
+            // MBC
+            0x0000..=0xBFFF => self.mbc.write_byte(address, value),
+            // High RAM
+            0xFF80..=0xFFFE => self.hram.write_byte(address, value),
+            _ => {
+                tracing::trace!(address = address, "Missing read implementation for address");
+                Ok(())
+            }
         }
     }
 }
@@ -132,7 +171,9 @@ impl MemoryBus {
     pub fn load_rom(rom: &[u8]) -> Result<Self, CartridgeLoadError> {
         let header = CartridgeHeader::parse(rom)?;
         tracing::debug!("Parsed header: {header:#?}");
-        let mbc = header.get_mbc()?;
+        let mut mbc = header.get_mbc()?;
+
+        mbc.load_rom(rom)?;
 
         Ok(Self {
             mbc,
@@ -140,6 +181,8 @@ impl MemoryBus {
             timer: Timer::default(),
             working_ram: RamArea::default(),
             serial: Serial::default(),
+            vram: RamArea::default(),
+            hram: RamArea::default(),
         })
     }
 
