@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+color-eyre = { workspace = true }
 owo-colors = { workspace = true }
 rustyline = { workspace = true }
 tracing = { workspace = true }

@@ -1,9 +1,13 @@
+mod cartridge;
 mod interrupts;
+mod mbc;
 mod ram;
 mod serial;
 mod timer;
 
+use cartridge::{CartridgeHeader, HeaderLoadError};
 use interrupts::Interrupts;
+use mbc::{MbcCreationError, TaggedMbc};
 use ram::RamArea;
 use serial::Serial;
 use thiserror::Error;
@@ -16,10 +20,19 @@ pub enum ReadByteError {
     #[error("The address {address:#06X} is invalid for the peripheral named {name}")]
     InvalidAddressForPeripheral { name: &'static str, address: u16 },
 }
+
 #[derive(Debug, Error)]
 pub enum WriteByteError {
     #[error("The address {address:#06X} is invalid for the peripheral named {name}")]
     InvalidAddressForPeripheral { name: &'static str, address: u16 },
+}
+
+#[derive(Debug, Error)]
+pub enum CartridgeLoadError {
+    #[error(transparent)]
+    InvalidHeader(#[from] HeaderLoadError),
+    #[error(transparent)]
+    InvalidMbcSpec(#[from] MbcCreationError),
 }
 
 pub trait BusReader {
@@ -45,7 +58,7 @@ pub trait InterruptSource {
 
 #[derive(Clone)]
 pub struct MemoryBus {
-    rom: [u8; 65536],
+    mbc: TaggedMbc,
     interrupts: Interrupts,
     timer: Timer,
     working_ram: RamArea<0x2000, 0xC000>,
@@ -58,18 +71,6 @@ impl core::fmt::Debug for MemoryBus {
             .field("interrupts", &self.interrupts)
             .field("timer", &self.timer)
             .finish_non_exhaustive()
-    }
-}
-
-impl core::default::Default for MemoryBus {
-    fn default() -> Self {
-        Self {
-            rom: [0u8; 65536],
-            interrupts: Interrupts::default(),
-            timer: Timer::default(),
-            working_ram: RamArea::default(),
-            serial: Serial::default(),
-        }
     }
 }
 
@@ -89,7 +90,8 @@ impl BusReader for MemoryBus {
             0xFF01 | 0xFF02 => self.serial.read_byte(address)?,
             // HACK(pavyamsiri): Hard return 0x90 for now so I can debug with doctor
             0xFF44 => 0x90,
-            _ => self.rom[address as usize],
+            // MBC
+            _ => self.mbc.read_byte(address)?,
         };
 
         tracing::trace!(
@@ -109,11 +111,38 @@ impl BusWriter for MemoryBus {
             value = value,
             "Writing {value:#04X} to {address:#06X}"
         );
-        self.write_byte_raw(address, value)
+        match address {
+            // Interrupts
+            0xFF0F | 0xFFFF => self.interrupts.write_byte(address, value),
+            // Timer
+            0xFF04..=0xFF07 => self.timer.write_byte(address, value),
+            // Working RAM
+            0xC000..=0xDFFF => self.working_ram.write_byte(address, value),
+            // Echo RAM
+            0xE000..=0xFDFF => self.write_byte(address - 0x2000, value),
+            // Serial
+            0xFF01 | 0xFF02 => self.serial.write_byte(address, value),
+            _ => self.mbc.write_byte(address, value),
+        }
     }
 }
 
 impl MemoryBus {
+    #[inline]
+    pub fn load_rom(rom: &[u8]) -> Result<Self, CartridgeLoadError> {
+        let header = CartridgeHeader::parse(rom)?;
+        tracing::debug!("Parsed header: {header:#?}");
+        let mbc = header.get_mbc()?;
+
+        Ok(Self {
+            mbc,
+            interrupts: Interrupts::default(),
+            timer: Timer::default(),
+            working_ram: RamArea::default(),
+            serial: Serial::default(),
+        })
+    }
+
     #[inline]
     pub fn has_new_serial_output(&mut self) -> Option<&[u8]> {
         if self.serial.has_shown() {
@@ -126,28 +155,6 @@ impl MemoryBus {
     #[inline]
     pub fn get_serial_output(&self) -> &[u8] {
         self.serial.output()
-    }
-
-    #[inline]
-    pub fn write_byte_raw(&mut self, address: u16, value: u8) -> Result<(), WriteByteError> {
-        match address {
-            // Interrupts
-            0xFF0F | 0xFFFF => {
-                self.interrupts.write_byte(address, value)?;
-            }
-            // Timer
-            0xFF04..=0xFF07 => self.timer.write_byte(address, value)?,
-            // Working RAM
-            0xC000..=0xDFFF => self.working_ram.write_byte(address, value)?,
-            // Echo RAM
-            0xE000..=0xFDFF => self.write_byte_raw(address - 0x2000, value)?,
-            // Serial
-            0xFF01 | 0xFF02 => self.serial.write_byte(address, value)?,
-            _ => {
-                self.rom[address as usize] = value;
-            }
-        }
-        Ok(())
     }
 
     #[inline]

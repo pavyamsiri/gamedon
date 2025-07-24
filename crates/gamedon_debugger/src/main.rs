@@ -1,3 +1,4 @@
+use color_eyre::Report;
 use gamedon_bus::{BusReader, MemoryBus};
 use gamedon_cpu::{BootRom, BreakPointCondition, Cpu};
 use owo_colors::{OwoColorize, Stream, Style};
@@ -22,11 +23,11 @@ fn read_binary_file(path: impl AsRef<Path>) -> Result<Vec<u8>, String> {
     read(path.as_ref())
 }
 
-fn main() {
+fn main() -> Result<(), Report> {
+    color_eyre::install().expect("only called once.");
     let filter = EnvFilter::builder()
-        .from_env()
-        .unwrap()
-        .add_directive("rustyline=info".parse().unwrap());
+        .from_env()?
+        .add_directive("rustyline=info".parse()?);
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(filter)
@@ -38,13 +39,7 @@ fn main() {
     let bytes = read_binary_file(path).expect("can't read binary file.");
 
     let mut cpu = Cpu::default();
-    let mut bus = MemoryBus::default();
-    for (index, byte) in bytes.iter().copied().enumerate() {
-        let Ok(index) = u16::try_from(index) else {
-            break;
-        };
-        bus.write_byte_raw(index, byte).unwrap();
-    }
+    let mut bus = MemoryBus::load_rom(&bytes)?;
 
     cpu.boot(BootRom::Doctor);
     cpu.debug_flag = false;
@@ -77,6 +72,8 @@ fn main() {
             cpu.resume();
         }
     }
+
+    Ok(())
 }
 
 fn handle_user_input(rl: &mut DefaultEditor, cpu: &mut Cpu, bus: &MemoryBus) -> bool {
