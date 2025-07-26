@@ -1,31 +1,36 @@
-use gamedon_bits::HwReg8;
-
 use crate::{
     BusReader, BusWriter, Interrupt, InterruptSource, Peripheral, ReadByteError, WriteByteError,
 };
+use core::default;
+use gamedon_bits::HwReg8;
 
+/// The serial port state.
 #[derive(Debug, Clone)]
 enum State {
+    /// The normal state.
     Normal,
+    /// Byte transfer is being requested.
     RequestTransfer,
 }
 
+/// The serial port.
 #[derive(Debug, Clone)]
 pub(crate) struct Serial {
-    /// 0xFF01: Serial data port.
+    /// $FF01: Serial data port.
     data: HwReg8,
-    /// 0xFF02: Serial data control.
+    /// $FF02: Serial data control.
     control: HwReg8,
 
     /// Transfer state.
     state: State,
-
     // Debug
+    /// All of the data written to the serial port.
     output: Vec<u8>,
+    /// Whether the serial port's current output has been shown before.
     has_shown: bool,
 }
 
-impl core::default::Default for Serial {
+impl default::Default for Serial {
     fn default() -> Self {
         Self {
             has_shown: true,
@@ -38,16 +43,14 @@ impl core::default::Default for Serial {
 }
 
 impl Serial {
+    /// Whether the serial port's current output has been shown yet.
     pub(crate) const fn has_shown(&self) -> bool {
         self.has_shown
     }
 
+    /// Return the serial port's current output as a slice of bytes.
     pub(crate) fn show(&mut self) -> &[u8] {
         self.has_shown = true;
-        &self.output
-    }
-
-    pub(crate) fn output(&self) -> &[u8] {
         &self.output
     }
 }

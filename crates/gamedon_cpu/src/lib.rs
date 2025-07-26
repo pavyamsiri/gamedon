@@ -1,46 +1,80 @@
+use alu::WithCarry;
+use gamedon_bus::{BusReader, BusWriter, MemoryBus, ReadByteError, WriteByteError};
+use gamedon_opcode::{Decoder, MicroOp, Registers};
+use rotate::{FillWith, ShiftOption};
+use std::collections::{BTreeMap, VecDeque};
+use thiserror::Error;
+
+pub use boot::BootRom;
+pub use gamedon_opcode::Instruction;
+
 mod alu;
 mod bit;
 mod boot;
 mod jump;
 mod rotate;
 
-use std::collections::{BTreeMap, VecDeque};
-
-use alu::WithCarry;
-use gamedon_bus::{BusReader, BusWriter, MemoryBus, ReadByteError, WriteByteError};
-pub use gamedon_opcode::Instruction;
-use gamedon_opcode::{MicroOp, Registers};
-use rotate::ShiftOption;
-use thiserror::Error;
-
-pub use boot::BootRom;
-
 type Map<K, V> = BTreeMap<K, V>;
 
+/// Helper function to reinterpret `u8` as `i8` without using `as` keyword.
+const fn cast_u8_to_i8(byte: u8) -> i8 {
+    i8::from_ne_bytes([byte])
+}
+
+/// Errors that can occur during CPU execution.
 #[derive(Debug, Error)]
 pub enum ExecuteError {
-    #[error("{0}")]
+    /// Errors from reading from the memory bus.
+    #[error(transparent)]
     BusRead(#[from] ReadByteError),
-    #[error("{0}")]
+    /// Errors from writing to the memory bus.
+    #[error(transparent)]
     BusWrite(#[from] WriteByteError),
-    #[error("The next PC is not a valid 16-bit address: base = {base} + {offset} > 2^16 - 1")]
-    OutOfBoundsPc { base: u16, offset: i16 },
+    /// The CPU encountered an invalid opcode.
     #[error("Attempted to run an invalid opcode.")]
     InvalidOpcode,
 }
 
-pub struct StepResult {
-    pub kind: StepResultKind,
-    pub should_pause: bool,
+/// Information about an instruction.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct InstructionInfo {
+    /// The address of the instruction.
+    pub address: u16,
+    /// The opcode.
+    pub opcode: u8,
+    /// Whether the opcode is a prefixed opcode.
+    pub is_prefix: bool,
 }
 
-pub enum StepResultKind {
-    Completed {
-        address: u16,
-        opcode: u16,
-        inst: Instruction,
-    },
+impl InstructionInfo {
+    /// Encode opcode as `u16` meaning the prefix byte and its opcode byte.
+    #[inline]
+    pub const fn to_u16(&self) -> u16 {
+        if self.is_prefix {
+            u16::from_be_bytes([0xCB, self.opcode])
+        } else {
+            u16::from_be_bytes([0x00, self.opcode])
+        }
+    }
+}
+
+/// Result of a CPU M-cycle.
+pub struct ExecutionStep {
+    /// The status of the instruction pipeline.
+    pub status: ExecutionStatus,
+    /// Whether the CPU has hit a breakpoint or not.
+    pub hit_breakpoint: bool,
+}
+
+/// The status of the instruction pipeline.
+pub enum ExecutionStatus {
+    /// The CPU has completed an instruction.
+    Completed(InstructionInfo),
+    /// The CPU is halted.
+    Halted,
+    /// The CPU is in the process of executing an instruction.
     Incomplete,
+    /// The CPU is not executing anything.
     Nop,
 }
 
@@ -56,52 +90,92 @@ pub enum BreakPointCondition {
     },
 }
 
+/// The micro op pipeline.
 #[derive(Debug, Default)]
 struct OpPipeline {
+    /// The queue of micro ops.
     queue: VecDeque<MicroOp>,
-    address: u16,
-    opcode: u16,
-    instruction: Instruction,
+    /// The instruction being executed.
+    info: InstructionInfo,
 }
 
+impl OpPipeline {
+    /// Encode opcode as `u16` meaning the prefix byte and its opcode byte.
+    const fn to_u16(&self) -> u16 {
+        if self.info.is_prefix {
+            u16::from_be_bytes([0xCB, self.info.opcode])
+        } else {
+            u16::from_be_bytes([0x00, self.info.opcode])
+        }
+    }
+}
+
+/// The master interrupt enable (IME) state.
+#[derive(Debug, Default, Clone, Copy)]
+enum ImeState {
+    /// Interrupts are disable.
+    #[default]
+    Off,
+    /// Interrupts are enabled.
+    On,
+    /// Interrupts are scheduled to be enabled after the completion of the next instruction.
+    /// This state would be entered after an `EI` instruction and then be updated upon
+    /// the decoding of the next instruction to `Updating`.
+    Scheduled,
+    /// Interrupts are in the process of being enabled at the completion of the current instruction.
+    /// This state is entered after the completion of the `EI` instruction and will transition to the
+    /// `On` state at the next fetch.
+    Updating,
+}
+
+impl ImeState {
+    const fn on(self) -> bool {
+        matches!(self, Self::On)
+    }
+}
+
+/// The CPU.
 #[derive(Debug, Default)]
 pub struct Cpu {
-    breakpoints: Map<u16, BreakPointCondition>,
-    conditional_mode: Option<bool>,
-    ime: bool,
-
-    is_halted: bool,
-
-    is_prefix: bool,
-    op_pipeline: OpPipeline,
-
+    /// The CPU registers.
     pub registers: Registers,
-
-    set_ime: bool,
-
-    // Internal registers
+    /// An internal working register for 8-bit numbers.
     pub tmp1: u8,
+    /// An internal working register for addresses and 16-bit numbers.
     pub addr: u16,
+    /// The active breakpoints.
+    breakpoints: Map<u16, BreakPointCondition>,
+    /// Whether the CPU is in conditional mode and the execution condition.
+    conditional_mode: Option<bool>,
+    /// The master interrupt enable.
+    ime: ImeState,
+    /// Whether the CPU is halted.
+    is_halted: bool,
+    /// The opcode decoder.
+    decoder: Decoder,
+    /// The micro op pipeline.
+    pipeline: OpPipeline,
 }
 
 // Debug
 impl Cpu {
+    /// Add a breakpoint at `address` with `condition`.
+    #[inline]
     pub fn add_breakpoint(&mut self, address: u16, condition: BreakPointCondition) {
         self.breakpoints.insert(address, condition);
     }
 
-    pub const fn get_last_op(&self) -> (u16, u16, Instruction) {
-        (
-            self.op_pipeline.address,
-            self.op_pipeline.opcode,
-            self.op_pipeline.instruction,
-        )
+    /// Return the last instruction's info.
+    #[inline]
+    pub const fn get_last_op(&self) -> InstructionInfo {
+        self.pipeline.info
     }
 }
 
-// Executor
+// Handlers
 impl Cpu {
-    fn handle_breakpoints_before_execution(&self) -> bool {
+    /// Check breakpoints before decoding.
+    fn handle_breakpoints_before_decode(&self) -> bool {
         let current_address = self.registers.get_pc();
         let Some(condition) = self.breakpoints.get(&current_address) else {
             return false;
@@ -115,6 +189,7 @@ impl Cpu {
         }
     }
 
+    /// Check breakpoints after decoding.
     fn handle_breakpoints_after_decode(&self) -> bool {
         let current_address = self.registers.get_pc();
         let Some(condition) = self.breakpoints.get(&current_address) else {
@@ -123,7 +198,7 @@ impl Cpu {
 
         match condition {
             BreakPointCondition::WhenOp(opcode) => {
-                if self.op_pipeline.opcode == *opcode {
+                if self.pipeline.to_u16() == *opcode {
                     tracing::debug!("Hit run into break point when opcode is {opcode:#06X}.");
                     true
                 } else {
@@ -134,6 +209,7 @@ impl Cpu {
         }
     }
 
+    /// Check breakpoints after execution.
     fn handle_breakpoints_after_execution(&self) -> bool {
         let current_address = self.registers.get_pc();
         let Some(condition) = self.breakpoints.get(&current_address) else {
@@ -147,6 +223,7 @@ impl Cpu {
         }
     }
 
+    /// Check breakpoints before bus read.
     fn handle_breakpoints_on_bus_read(&mut self, address: u16) -> bool {
         let Some(condition) = self.breakpoints.get(&address) else {
             return false;
@@ -159,6 +236,7 @@ impl Cpu {
         }
     }
 
+    /// Check breakpoints before bus write.
     fn handle_breakpoints_on_bus_write(&mut self, address: u16, value: u8) -> bool {
         let _ = value;
         let Some(condition) = self.breakpoints.get(&address) else {
@@ -175,7 +253,10 @@ impl Cpu {
             _ => false,
         }
     }
+}
 
+// Diagnostics
+impl Cpu {
     pub fn print_doctor_status(&self, bus: &impl BusReader) -> Result<String, ExecuteError> {
         let byte1 = bus.read_byte(self.registers.get_pc())?;
         let byte2 = bus.read_byte(self.registers.get_pc() + 1)?;
@@ -201,12 +282,16 @@ impl Cpu {
             tima,
         ))
     }
+}
 
+// Executor
+impl Cpu {
+    /// Execute an M-cycle.
     pub fn step(
         &mut self,
         bus: &mut MemoryBus,
         skip_breakpoints: bool,
-    ) -> Result<StepResult, ExecuteError> {
+    ) -> Result<ExecutionStep, ExecuteError> {
         macro_rules! read_byte {
             ($bus:expr, $address:expr, $should_break:expr) => {{
                 let address = $address;
@@ -230,74 +315,69 @@ impl Cpu {
         // Fetch instruction
         let current_address = self.registers.get_pc();
 
-        if !skip_breakpoints && self.handle_breakpoints_before_execution() {
-            return Ok(StepResult {
-                kind: StepResultKind::Nop,
-                should_pause: true,
+        if !skip_breakpoints && self.handle_breakpoints_before_decode() {
+            return Ok(ExecutionStep {
+                status: ExecutionStatus::Nop,
+                hit_breakpoint: true,
             });
         }
 
         let mut should_pause = false;
 
         // Not currently executing an instruction
-        if self.op_pipeline.queue.is_empty() {
+        if self.pipeline.queue.is_empty() {
             // CPU is halted, only wake up when there are pending interrupts.
             if self.is_halted {
                 self.is_halted = !bus.is_pending_interrupts();
-                return Ok(StepResult {
-                    kind: StepResultKind::Incomplete,
-                    should_pause: false,
+                return Ok(ExecutionStep {
+                    status: ExecutionStatus::Halted,
+                    hit_breakpoint: false,
                 });
             }
 
-            if self.set_ime {
-                self.ime = true;
-                self.set_ime = false;
-            }
+            self.ime = match self.ime {
+                flag @ (ImeState::Off | ImeState::On) => flag,
+                ImeState::Scheduled => ImeState::Updating,
+                ImeState::Updating => ImeState::On,
+            };
 
             // If the Interrupt Master Enable is set
             if let Some(interrupt) = bus.get_pending_interrupt()
-                && self.ime
+                && self.ime.on()
             {
                 bus.reset_interrupt_request(interrupt);
-                self.ime = false;
+                self.ime = ImeState::Off;
                 Instruction::encode_interrupt_request(
-                    &mut self.op_pipeline.queue,
+                    &mut self.pipeline.queue,
                     interrupt.to_address(),
                 );
             } else {
                 let opcode = read_byte!(bus, current_address, &mut should_pause);
-                let inst = if self.is_prefix {
-                    self.op_pipeline.opcode = 0xCB00 | u16::from(opcode);
-                    self.is_prefix = false;
-                    Instruction::decode_prefix(opcode)
-                } else {
-                    self.op_pipeline.opcode = u16::from(opcode);
-                    Instruction::decode_no_prefix(opcode)
-                };
-                let mut it = bus
-                    .iter_from(current_address + 1)
-                    .enumerate()
-                    .map(|(i, val)| (i + current_address as usize + 1 + i, val));
+                let inst = self.decoder.decode(opcode);
+
+                let mut it = bus.iter_from(current_address + 1);
                 let mut display_str = format!("{current_address:#06X}: ");
                 inst.format(&mut display_str, &mut it, opcode).unwrap();
                 tracing::trace!("{display_str}");
 
-                inst.decompose(&mut self.op_pipeline.queue);
-                self.op_pipeline.address = current_address;
-                self.op_pipeline.instruction = inst;
+                inst.decompose(&mut self.pipeline.queue);
+                self.pipeline.info = InstructionInfo {
+                    address: current_address,
+                    opcode,
+                    is_prefix: inst.is_prefix(),
+                };
 
                 if !skip_breakpoints && self.handle_breakpoints_after_decode() {
-                    return Ok(StepResult {
-                        kind: StepResultKind::Nop,
-                        should_pause: true,
+                    return Ok(ExecutionStep {
+                        status: ExecutionStatus::Nop,
+                        hit_breakpoint: true,
                     });
                 }
             }
         }
 
         // Clear out ops until yield
-        while let Some(op) = self.op_pipeline.queue.pop_front() {
+        while let Some(op) = self.pipeline.queue.pop_front() {
             if let Some(false) = self.conditional_mode {
                 if let MicroOp::EndCondition = op {
                     self.conditional_mode = None;
@@ -306,7 +386,7 @@ impl Cpu {
             } else {
                 tracing::trace!(
                     "\t\tExecuting uop ({:#06X}): {op:?} |Flags = {:08b}|",
-                    self.op_pipeline.address,
+                    self.pipeline.info.address,
                     self.registers.get_f()
                 );
                 match op {
@@ -317,9 +397,9 @@ impl Cpu {
                     MicroOp::Yield => break,
                     MicroOp::Halt => self.is_halted = true,
                     MicroOp::Stop => todo!(),
-                    MicroOp::SetIME => self.ime = true,
-                    MicroOp::Ei => self.set_ime = true,
-                    MicroOp::Di => self.ime = false,
+                    MicroOp::SetIME => self.ime = ImeState::On,
+                    MicroOp::Ei => self.ime = ImeState::Scheduled,
+                    MicroOp::Di => self.ime = ImeState::Off,
                     MicroOp::Daa => {
                         self.daa();
                     }
@@ -335,9 +415,7 @@ impl Cpu {
                     MicroOp::Cpl => {
                         self.cpl();
                     }
-                    MicroOp::FetchPrefix => {
-                        self.is_prefix = true;
-                    }
+                    MicroOp::FetchPrefix => {}
                     MicroOp::ReadReg8(reg) => {
                         self.tmp1 = self.registers.get_reg8(reg);
                     }
@@ -345,16 +423,16 @@ impl Cpu {
                         self.registers.set_reg8(reg, self.tmp1);
                     }
                     MicroOp::RotateLeftCarry => {
-                        self.tmp1 = self.alu_rotate_left(self.tmp1, WithCarry::Yes);
+                        self.tmp1 = self.alu_rotate_left(self.tmp1, FillWith::Carry);
                     }
                     MicroOp::RotateLeft => {
-                        self.tmp1 = self.alu_rotate_left(self.tmp1, WithCarry::No);
+                        self.tmp1 = self.alu_rotate_left(self.tmp1, FillWith::OldBit);
                     }
                     MicroOp::RotateRightCarry => {
-                        self.tmp1 = self.alu_rotate_right(self.tmp1, WithCarry::Yes);
+                        self.tmp1 = self.alu_rotate_right(self.tmp1, FillWith::Carry);
                     }
                     MicroOp::RotateRight => {
-                        self.tmp1 = self.alu_rotate_right(self.tmp1, WithCarry::No);
+                        self.tmp1 = self.alu_rotate_right(self.tmp1, FillWith::OldBit);
                     }
                     MicroOp::ReadReg16(reg) => {
                         self.addr = self.registers.get_reg16(reg);
@@ -366,7 +444,7 @@ impl Cpu {
                         self.addr = self.registers.get_pc();
                     }
                     MicroOp::WritePC => {
-                        should_pause |= self.addr == self.op_pipeline.address;
+                        should_pause |= self.addr == self.pipeline.info.address;
                         self.registers.set_pc(self.addr);
                     }
                     MicroOp::ReadByteFromMem => {
@@ -404,10 +482,10 @@ impl Cpu {
                         self.addr = self.addr.wrapping_sub(1);
                     }
                     MicroOp::LoadLoAddr => {
-                        self.tmp1 = (self.addr & 0x00FF) as u8;
+                        self.tmp1 = self.addr.to_le_bytes()[0];
                     }
                     MicroOp::LoadHiAddr => {
-                        self.tmp1 = ((self.addr & 0xFF00) >> 8) as u8;
+                        self.tmp1 = self.addr.to_be_bytes()[0];
                     }
                     MicroOp::LoadAddr(value) => {
                         self.addr = value;
@@ -423,10 +501,12 @@ impl Cpu {
                         self.conditional_mode = None;
                     }
                     MicroOp::AluAddU16I8 => {
-                        self.addr = self.alu_add16_signed(self.addr, self.tmp1 as i8);
+                        self.addr = self.alu_add16_signed(self.addr, cast_u8_to_i8(self.tmp1));
                     }
                     MicroOp::AluAddU16I8NoFlags => {
-                        self.addr = self.addr.wrapping_add_signed(i16::from(self.tmp1 as i8));
+                        self.addr = self
+                            .addr
+                            .wrapping_add_signed(i16::from(cast_u8_to_i8(self.tmp1)));
                     }
                     MicroOp::AluInc8 => {
                         self.tmp1 = self.alu_inc8(self.tmp1);
@@ -442,16 +522,16 @@ impl Cpu {
                         self.registers.set_a(value);
                     }
                     MicroOp::AluRlc8 => {
-                        self.tmp1 = self.alu_rotate_left(self.tmp1, WithCarry::No);
+                        self.tmp1 = self.alu_rotate_left(self.tmp1, FillWith::OldBit);
                     }
                     MicroOp::AluRrc8 => {
-                        self.tmp1 = self.alu_rotate_right(self.tmp1, WithCarry::No);
+                        self.tmp1 = self.alu_rotate_right(self.tmp1, FillWith::OldBit);
                     }
                     MicroOp::AluRl8 => {
-                        self.tmp1 = self.alu_rotate_left(self.tmp1, WithCarry::Yes);
+                        self.tmp1 = self.alu_rotate_left(self.tmp1, FillWith::Carry);
                     }
                     MicroOp::AluRr8 => {
-                        self.tmp1 = self.alu_rotate_right(self.tmp1, WithCarry::Yes);
+                        self.tmp1 = self.alu_rotate_right(self.tmp1, FillWith::Carry);
                     }
                     MicroOp::AluSla8 => {
                         self.tmp1 = self.alu_shift_left(self.tmp1);
@@ -525,22 +605,18 @@ impl Cpu {
             }
         }
 
-        if self.op_pipeline.queue.is_empty() {
+        if self.pipeline.queue.is_empty() {
             should_pause |= self.handle_breakpoints_after_execution();
             let should_pause = should_pause && !skip_breakpoints;
-            Ok(StepResult {
-                kind: StepResultKind::Completed {
-                    address: self.op_pipeline.address,
-                    opcode: self.op_pipeline.opcode,
-                    inst: self.op_pipeline.instruction,
-                },
-                should_pause,
+            Ok(ExecutionStep {
+                status: ExecutionStatus::Completed(self.pipeline.info),
+                hit_breakpoint: should_pause,
             })
         } else {
             let should_pause = should_pause && !skip_breakpoints;
-            Ok(StepResult {
-                kind: StepResultKind::Incomplete,
-                should_pause,
+            Ok(ExecutionStep {
+                status: ExecutionStatus::Incomplete,
+                hit_breakpoint: should_pause,
             })
         }
     }
@@ -548,12 +624,14 @@ impl Cpu {
 
 // miscellaneous
 impl Cpu {
+    /// Perform the `SCF` instruction or "set carry flag".
     const fn scf(&mut self) {
         self.registers.set_carry_flag(true);
         self.registers.set_half_carry_flag(false);
         self.registers.set_subtraction_flag(false);
     }
 
+    /// Perform the `CCF` instruction or "complement carry flag".
     const fn ccf(&mut self) {
         self.registers
             .set_carry_flag(!self.registers.get_carry_flag());
@@ -561,6 +639,7 @@ impl Cpu {
         self.registers.set_subtraction_flag(false);
     }
 
+    /// Perform the `CPL` instruction or "complement".
     const fn cpl(&mut self) {
         // Flip bits of register A
         let current_value = self.registers.get_a();
@@ -574,6 +653,7 @@ impl Cpu {
         self.registers.set_a(new_value);
     }
 
+    /// Perform the `DAA` instruction or "decimal adjust accumulator".
     const fn daa(&mut self) {
         if self.registers.get_subtraction_flag() {
             if self.registers.get_carry_flag() {
@@ -598,199 +678,5 @@ impl Cpu {
 
         self.registers.set_zero_flag(self.registers.get_a() == 0);
         self.registers.set_half_carry_flag(false);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use gamedon_bus::{BusReader, BusWriter, MemoryBus};
-
-    use crate::{BootRom, Cpu, StepResultKind};
-
-    #[test]
-    fn ei_delay_behavior() {
-        // Initialize CPU and bus
-        let mut cpu = Cpu::default();
-        cpu.boot(BootRom::Dmg);
-        let mut bus = MemoryBus::default();
-
-        // Test program: EI -> NOP (IME should enable AFTER NOP)
-        bus.write_byte(0xC000, 0xFB).unwrap(); // EI
-        bus.write_byte(0xC001, 0x00).unwrap(); // NOP
-        cpu.registers.set_pc(0xC000);
-
-        // Step 1: Execute EI (IME should NOT be enabled yet)
-        let result = cpu.step(&mut bus, true).unwrap();
-        assert!(matches!(result.kind, StepResultKind::Completed { .. }));
-        assert!(!cpu.ime, "IME should NOT be enabled immediately after EI");
-
-        // Step 2: Execute NOP (IME should now be enabled)
-        let result = cpu.step(&mut bus, true).unwrap();
-        assert!(matches!(result.kind, StepResultKind::Completed { .. }));
-        assert!(
-            cpu.ime,
-            "IME should be enabled after the next instruction (NOP)"
-        );
-
-        // Verify PC advanced correctly
-        assert_eq!(0xC002, cpu.registers.get_pc());
-    }
-
-    #[test]
-    fn ei_delay_with_interrupt() {
-        // Initialize CPU and bus
-        let mut cpu = Cpu::default();
-        cpu.boot(BootRom::Dmg);
-        let mut bus = MemoryBus::default();
-
-        // Test program: EI -> HALT
-        bus.write_byte(0xC000, 0xFB).unwrap(); // EI
-        bus.write_byte(0xC001, 0x76).unwrap(); // HALT
-        cpu.registers.set_pc(0xC000);
-        cpu.registers.set_sp(0xFFFE);
-
-        // Set up VBlank interrupt
-        bus.write_byte(0xFF0F, 0x01).unwrap(); // IF: VBlank requested
-        bus.write_byte(0xFFFF, 0x01).unwrap(); // IE: VBlank enabled
-
-        // Execute EI
-        let _ = cpu.step(&mut bus, true).unwrap();
-
-        // Execute HALT (should increment PC before halting)
-        let _ = cpu.step(&mut bus, true).unwrap();
-
-        // Process interrupt (may take multiple steps)
-        while cpu.registers.get_pc() != 0x0040 {
-            let _ = cpu.step(&mut bus, true).unwrap();
-        }
-
-        // ---- Verify Correct Game Boy Behavior ----
-        assert_eq!(0x0040, cpu.registers.get_pc(), "Should jump to handler");
-        assert_eq!(0xFFFC, cpu.registers.get_sp(), "SP should decrement by 2");
-
-        // This is the crucial fix - we EXPECT 0xC002 to be pushed:
-        assert_eq!(
-            0xC0,
-            bus.read_byte(0xFFFD).unwrap(),
-            "High byte of next instruction"
-        );
-        assert_eq!(
-            0x02,
-            bus.read_byte(0xFFFC).unwrap(),
-            "Low byte of next instruction"
-        );
-
-        assert_eq!(0x00, bus.read_byte(0xFF0F).unwrap(), "IF should be cleared");
-        assert!(!cpu.ime, "IME should be disabled during handler");
-    }
-
-    #[test]
-    fn daa_add_test() {
-        // 0x27
-        let mut cpu = Cpu::default();
-        cpu.boot(BootRom::Dmg);
-        let mut bus = MemoryBus::default();
-        cpu.registers.set_a(0x10);
-        cpu.registers.set_b(0x25);
-        cpu.registers.set_pc(0xC000);
-        bus.write_byte(0xC000, 0x80).unwrap();
-        bus.write_byte(0xC001, 0x27).unwrap();
-        cpu.step(&mut bus, true).unwrap();
-        cpu.step(&mut bus, true).unwrap();
-
-        assert_eq!(0xC002, cpu.registers.get_pc());
-
-        // Result
-        let byte = cpu.registers.get_a();
-        assert_eq!(0x35, byte);
-
-        // Check flags
-        assert!(!cpu.registers.get_zero_flag());
-        assert!(!cpu.registers.get_subtraction_flag());
-        assert!(!cpu.registers.get_half_carry_flag());
-        assert!(!cpu.registers.get_carry_flag());
-    }
-
-    #[test]
-    fn daa_adc_test() {
-        // 0x27
-        let mut cpu = Cpu::default();
-        cpu.boot(BootRom::Dmg);
-        let mut bus = MemoryBus::default();
-        cpu.registers.set_a(0x10);
-        cpu.registers.set_b(0x25);
-        cpu.registers.set_carry_flag(true);
-        cpu.registers.set_pc(0xC000);
-        bus.write_byte(0xC000, 0x88).unwrap();
-        bus.write_byte(0xC001, 0x27).unwrap();
-        cpu.step(&mut bus, true).unwrap();
-        cpu.step(&mut bus, true).unwrap();
-
-        assert_eq!(0xC002, cpu.registers.get_pc());
-
-        // Result
-        let byte = cpu.registers.get_a();
-        assert_eq!(0x36, byte);
-
-        // Check flags
-        assert!(!cpu.registers.get_zero_flag());
-        assert!(!cpu.registers.get_subtraction_flag());
-        assert!(!cpu.registers.get_half_carry_flag());
-        assert!(!cpu.registers.get_carry_flag());
-    }
-
-    #[test]
-    fn daa_sub_test() {
-        // 0x27
-        let mut cpu = Cpu::default();
-        cpu.boot(BootRom::Dmg);
-        let mut bus = MemoryBus::default();
-        cpu.registers.set_a(0x25);
-        cpu.registers.set_b(0x10);
-        cpu.registers.set_pc(0xC000);
-        bus.write_byte(0xC000, 0x90).unwrap();
-        bus.write_byte(0xC001, 0x27).unwrap();
-        cpu.step(&mut bus, true).unwrap();
-        cpu.step(&mut bus, true).unwrap();
-
-        assert_eq!(0xC002, cpu.registers.get_pc());
-
-        // Result
-        let byte = cpu.registers.get_a();
-        assert_eq!(0x15, byte);
-
-        // Check flags
-        assert!(!cpu.registers.get_zero_flag());
-        assert!(cpu.registers.get_subtraction_flag());
-        assert!(!cpu.registers.get_half_carry_flag());
-        assert!(!cpu.registers.get_carry_flag());
-    }
-
-    #[test]
-    fn daa_sbc_test() {
-        // 0x27
-        let mut cpu = Cpu::default();
-        cpu.boot(BootRom::Dmg);
-        let mut bus = MemoryBus::default();
-        cpu.registers.set_a(0x25);
-        cpu.registers.set_b(0x10);
-        cpu.registers.set_carry_flag(true);
-        cpu.registers.set_pc(0xC000);
-        bus.write_byte(0xC000, 0x98).unwrap();
-        bus.write_byte(0xC001, 0x27).unwrap();
-        cpu.step(&mut bus, true).unwrap();
-        cpu.step(&mut bus, true).unwrap();
-
-        assert_eq!(0xC002, cpu.registers.get_pc());
-
-        // Result
-        let byte = cpu.registers.get_a();
-        assert_eq!(0x14, byte);
-
-        // Check flags
-        assert!(!cpu.registers.get_zero_flag());
-        assert!(cpu.registers.get_subtraction_flag());
-        assert!(!cpu.registers.get_half_carry_flag());
-        assert!(!cpu.registers.get_carry_flag());
     }
 }

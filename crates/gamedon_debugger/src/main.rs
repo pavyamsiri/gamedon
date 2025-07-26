@@ -2,27 +2,32 @@ use clap::Parser as ClapParser;
 use color_eyre::Report;
 use gamedon_bus::{BusReader, MemoryBus};
 use gamedon_cpu::{BootRom, BreakPointCondition, Cpu};
-use gamedon_cpu::{Instruction, StepResultKind};
+use gamedon_cpu::{ExecutionStatus, Instruction};
 use gamedon_debugger::{Command, Parser};
+use gamedon_file::read_binary_file;
 use owo_colors::{OwoColorize, Stream, Style};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
-use std::fs::File;
-use std::io::{BufReader, Read};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
+/// Style to use when pretty printing a keyword.
 const KEYWORD_STYLE: Style = Style::new().red();
+/// Style to use when pretty printing a value.
 const VALUE_STYLE: Style = Style::new().magenta();
+/// Style to use when pretty printing an address.
 const ADDRESS_STYLE: Style = Style::new().bright_magenta();
+/// Style to use when pretty printing a flag.
 const FLAG_STYLE: Style = Style::new().yellow();
 
+/// Apply a colour to any displayable token only if stdout supports colour output.
 macro_rules! apply_colour {
     ($token:expr, $style:expr) => {
         $token.if_supports_color(Stream::Stdout, |text| text.style($style))
     };
 }
 
+/// The command line arguments.
 #[derive(ClapParser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -31,19 +36,6 @@ struct Args {
     /// Set this flag to turn on the debugger.
     #[arg(short, long)]
     debug: bool,
-}
-
-fn read_binary_file(path: impl AsRef<Path>) -> Result<Vec<u8>, String> {
-    fn read(path: &Path) -> Result<Vec<u8>, String> {
-        let file = File::open(path).map_err(|_| "can't open file.")?;
-        let mut reader = BufReader::new(file);
-        let mut buffer = Vec::new();
-        reader
-            .read_to_end(&mut buffer)
-            .map_err(|_| "can't read all bytes.")?;
-        Ok(buffer)
-    }
-    read(path.as_ref())
 }
 
 #[expect(
@@ -56,11 +48,11 @@ fn main() -> Result<(), Report> {
         .from_env()?
         .add_directive("rustyline=info".parse()?);
     tracing_subscriber::registry()
-        .with(fmt::layer())
+        .with(fmt::layer().without_time())
         .with(filter)
         .init();
 
-    let args = Args::try_parse()?;
+    let args = Args::parse();
     let path = args.path;
 
     let bytes = read_binary_file(path).expect("can't read binary file.");
@@ -86,13 +78,14 @@ fn main() -> Result<(), Report> {
             let (step_result, should_pause) = step(&mut cpu, &mut bus, false);
             pause_scheduled |= should_pause;
 
-            if let Some((_, opcode, _)) = step_result {
+            if let ExecutionStatus::Completed(info) = step_result {
                 if pause_scheduled {
                     paused = true;
                     pause_scheduled = false;
                 }
 
-                if !debug_flag && opcode != 0x00CB {
+                if !debug_flag && !matches!(Instruction::decode(info.to_u16()), Instruction::Prefix)
+                {
                     println!("{}", cpu.print_doctor_status(&bus)?);
                 }
             }
@@ -102,30 +95,22 @@ fn main() -> Result<(), Report> {
     Ok(())
 }
 
-fn step(
-    cpu: &mut Cpu,
-    bus: &mut MemoryBus,
-    skip_breakpoints: bool,
-) -> (Option<(u16, u16, Instruction)>, bool) {
-    let step_result = match cpu.step(bus, skip_breakpoints) {
+/// Step through one M-cycle of the emulated Gameboy either skipping or respecting breakpoints
+/// depending on the flag.
+///
+/// Returns the execution status of the CPU and whether it has hit a breakpoint.
+fn step(cpu: &mut Cpu, bus: &mut MemoryBus, skip_breakpoints: bool) -> (ExecutionStatus, bool) {
+    let outcome = match cpu.step(bus, skip_breakpoints) {
         Ok(res) => res,
         Err(err) => panic!("{err}"),
     };
-    let (instruction, should_run) = match step_result.kind {
-        StepResultKind::Completed {
-            address,
-            opcode,
-            inst,
-        } => (Some((address, opcode, inst)), true),
-        StepResultKind::Incomplete => (None, true),
-        StepResultKind::Nop => (Some((0x00, 0x00, Instruction::Nop)), false),
-    };
+    let should_run = !matches!(outcome.status, ExecutionStatus::Nop);
 
-    let mut should_pause = step_result.should_pause;
+    let mut should_pause = outcome.hit_breakpoint;
 
     if should_run {
-        bus.timer_tick(1);
-        bus.serial_tick(1);
+        bus.timer_tick();
+        bus.serial_tick();
         bus.update_interrupt_requests();
         if let Some(output) = bus.has_new_serial_output() {
             let serial_string = String::from_utf8_lossy(output);
@@ -137,9 +122,10 @@ fn step(
         }
     }
 
-    (instruction, should_pause)
+    (outcome.status, should_pause)
 }
 
+/// Display the debug command prompt and handle user input.
 #[expect(
     clippy::print_stdout,
     reason = "This function is supposed to act as the command line interface."
@@ -167,18 +153,16 @@ fn handle_user_input(rl: &mut DefaultEditor, cpu: &mut Cpu, bus: &mut MemoryBus)
                     Command::Exit => return true,
                     Command::Resume => return false,
                     Command::Step => {
-                        let (current_address, opcode, inst) = 'inst: loop {
-                            if let (Some(inst), _) = step(cpu, bus, true) {
+                        let info = 'inst: loop {
+                            if let (ExecutionStatus::Completed(inst), _) = step(cpu, bus, true) {
                                 break 'inst inst;
                             }
                         };
-                        let mut it = bus
-                            .iter_from(current_address + 1)
-                            .enumerate()
-                            .map(|(i, val)| (i + current_address as usize + 1 + i, val));
+                        let inst = Instruction::decode(info.to_u16());
+                        let mut it = bus.iter_from(info.address + 1);
                         let mut display_str =
-                            format!("{:#06X}: ", apply_colour!(current_address, ADDRESS_STYLE));
-                        inst.format(&mut display_str, &mut it, (opcode & 0x00FF) as u8)
+                            format!("{:#06X}: ", apply_colour!(info.address, ADDRESS_STYLE));
+                        inst.format(&mut display_str, &mut it, info.opcode.to_le_bytes()[0])
                             .unwrap();
                         println!("Executed");
                         println!("{display_str}");
@@ -243,15 +227,12 @@ fn handle_user_input(rl: &mut DefaultEditor, cpu: &mut Cpu, bus: &mut MemoryBus)
                         cpu.add_breakpoint(address, BreakPointCondition::WriteBus { value });
                     }
                     Command::LastOp => {
-                        let (current_address, opcode, inst) = cpu.get_last_op();
-                        let mut it = bus
-                            .iter_from(current_address + 1)
-                            .enumerate()
-                            .map(|(i, val)| (i + current_address as usize + 1 + i, val));
+                        let info = cpu.get_last_op();
+                        let inst = Instruction::decode(info.to_u16());
+                        let mut it = bus.iter_from(info.address + 1);
                         let mut display_str =
-                            format!("{:#06X}: ", apply_colour!(current_address, ADDRESS_STYLE));
-                        inst.format(&mut display_str, &mut it, (opcode & 0x00FF) as u8)
-                            .unwrap();
+                            format!("{:#06X}: ", apply_colour!(info.address, ADDRESS_STYLE));
+                        inst.format(&mut display_str, &mut it, info.opcode).unwrap();
                         println!("Last opcode");
                         println!("{display_str}");
                     }

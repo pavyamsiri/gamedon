@@ -271,12 +271,30 @@ dependencies = [
  "color-eyre",
  "gamedon_bus",
  "gamedon_cpu",
+ "gamedon_file",
  "gamedon_lexer",
  "owo-colors",
  "rustyline",
  "thiserror",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "gamedon_disassembler"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "color-eyre",
+ "gamedon_file",
+ "gamedon_opcode",
+]
+
+[[package]]
+name = "gamedon_file"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
 ]
 
 [[package]]

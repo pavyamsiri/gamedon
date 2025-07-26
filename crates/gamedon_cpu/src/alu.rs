@@ -1,13 +1,17 @@
 use crate::Cpu;
 
+/// Perform the arithmetic operation using the carry flag or not.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum WithCarry {
+    /// Use the carry flag.
     Yes,
+    /// Don't use the carry flag.
     No,
 }
 
 // Raw ALU ops
 impl Cpu {
+    /// Increment an 8-bit `value`.
     pub(crate) const fn alu_inc8(&mut self, value: u8) -> u8 {
         let new_value = value.wrapping_add(1);
 
@@ -23,6 +27,7 @@ impl Cpu {
         new_value
     }
 
+    /// Decrement an 8-bit `value`.
     pub(crate) const fn alu_dec8(&mut self, value: u8) -> u8 {
         let new_value = value.wrapping_sub(1);
 
@@ -36,6 +41,7 @@ impl Cpu {
         new_value
     }
 
+    /// Add two 8-bit values `lhs` and `rhs` with or without carry.
     pub(crate) const fn alu_add8(&mut self, lhs: u8, rhs: u8, with_carry: WithCarry) -> u8 {
         let carry_value = match with_carry {
             WithCarry::Yes => self.registers.get_carry_flag() as u8,
@@ -59,6 +65,7 @@ impl Cpu {
         new_value
     }
 
+    /// Subtract `rhs` from `lhs` with or without carry.
     pub(crate) const fn alu_sub8(&mut self, lhs: u8, rhs: u8, with_carry: WithCarry) -> u8 {
         let carry_value = match with_carry {
             WithCarry::Yes => self.registers.get_carry_flag() as u8,
@@ -83,6 +90,7 @@ impl Cpu {
         new_value
     }
 
+    /// Bitwise and `lhs` and `rhs`.
     pub(crate) const fn alu_and8(&mut self, lhs: u8, rhs: u8) -> u8 {
         let result = rhs & lhs;
 
@@ -98,6 +106,7 @@ impl Cpu {
         result
     }
 
+    /// Bitwise xor `lhs` and `rhs`.
     pub(crate) const fn alu_xor8(&mut self, lhs: u8, rhs: u8) -> u8 {
         let result = rhs ^ lhs;
 
@@ -113,6 +122,7 @@ impl Cpu {
         result
     }
 
+    /// Bitwise or `lhs` and `rhs`.
     pub(crate) const fn alu_or8(&mut self, lhs: u8, rhs: u8) -> u8 {
         let result = rhs | lhs;
 
@@ -128,6 +138,7 @@ impl Cpu {
         result
     }
 
+    /// Add two 16-bit values `lhs` and `rhs`.
     pub(crate) const fn alu_add16(&mut self, lhs: u16, rhs: u16) -> u16 {
         let (new_value, did_overflow) = lhs.overflowing_add(rhs);
 
@@ -144,6 +155,7 @@ impl Cpu {
         new_value
     }
 
+    /// Add a signed 8-bit `offset` to a 16-bit `base` value.
     #[expect(clippy::cast_sign_loss, reason = "this behaviour is expected.")]
     pub(crate) const fn alu_add16_signed(&mut self, base: u16, offset: i8) -> u16 {
         let (new_value, _) = base.overflowing_add(offset as u16);

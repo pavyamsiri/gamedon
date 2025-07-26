@@ -1,5 +1,5 @@
 [workspace]
-members = [ "crates/gamedon_bits", "crates/gamedon_bus", "crates/gamedon_cpu", "crates/gamedon_debugger", "crates/gamedon_lexer", "crates/gamedon_opcode"]
+members = [ "crates/gamedon_bits", "crates/gamedon_bus", "crates/gamedon_cpu", "crates/gamedon_debugger", "crates/gamedon_disassembler", "crates/gamedon_file", "crates/gamedon_lexer", "crates/gamedon_opcode"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -15,6 +15,7 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 gamedon_bits = { path = "crates/gamedon_bits" }
 gamedon_bus = { path = "crates/gamedon_bus" }
 gamedon_cpu = { path = "crates/gamedon_cpu" }
+gamedon_file = { path = "crates/gamedon_file" }
 gamedon_lexer = { path = "crates/gamedon_lexer" }
 gamedon_opcode = { path = "crates/gamedon_opcode" }
 

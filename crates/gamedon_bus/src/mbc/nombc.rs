@@ -1,8 +1,7 @@
-use super::{
-    MbcCreationError, MemoryBankController, RamLoadError, RamSize, RomLoadError, RomSize,
-    bank::{MemoryBank, NamedType},
+use super::{MbcCreationError, MemoryBankController, RamLoadError, RomLoadError};
+use crate::{
+    BusReader, BusWriter, MemoryBank, NameTag, RamSize, ReadByteError, RomSize, WriteByteError,
 };
-use crate::{BusReader, BusWriter, ReadByteError, WriteByteError};
 
 /// The name of the controller.
 const NAME: &str = "nombc";
@@ -15,24 +14,30 @@ const ROM_BANK_SIZE: usize = 0x8000;
 /// The size of a RAM bank for a cartridge with no MBC.
 const RAM_BANK_SIZE: usize = 0x2000;
 
-type RomBank = MemoryBank<ROM_BANK_SIZE, NoMbcName>;
-type RamBank = MemoryBank<RAM_BANK_SIZE, NoMbcName>;
-
-struct NoMbcName;
-
-impl NamedType for NoMbcName {
+/// The tag for ROM only cartridge MBCs.
+struct RomOnlyTag;
+impl NameTag for RomOnlyTag {
     fn name() -> &'static str {
         NAME
     }
 }
 
+/// The ROM bank.
+type RomBank = MemoryBank<ROM_BANK_SIZE, RomOnlyTag>;
+/// The RAM bank.
+type RamBank = MemoryBank<RAM_BANK_SIZE, RomOnlyTag>;
+
+// The ROM only cartridge MBC.
 #[derive(Debug, Clone)]
 pub(crate) struct NoMbc {
+    /// The only ROM bank.
     rom: RomBank,
+    /// The optional RAM bank.
     ram: Option<RamBank>,
 }
 
 impl NoMbc {
+    /// Create a new ROM only MBC.
     pub(crate) const fn new(
         rom_size: RomSize,
         ram_size: RamSize,
@@ -150,7 +155,5 @@ impl MemoryBankController for NoMbc {
         }
     }
 
-    fn update(&mut self, num_m_cycles: usize) {
-        let _ = num_m_cycles;
-    }
+    fn tick(&mut self) {}
 }

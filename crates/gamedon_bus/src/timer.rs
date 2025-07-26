@@ -1,8 +1,10 @@
 use crate::{
     BusReader, BusWriter, Interrupt, InterruptSource, Peripheral, ReadByteError, WriteByteError,
 };
+use core::default;
 use gamedon_bits::{BitShift8, BitShift16, HwReg8, HwReg16};
 
+/// The timer state.
 #[derive(Debug, Clone, Default)]
 enum State {
     #[default]
@@ -11,10 +13,11 @@ enum State {
     Reloading,
 }
 
+/// The timer.
 #[derive(Debug, Clone)]
 pub(crate) struct Timer {
-    /// The system counter where the upper 8 bits are visible as DIV or the divider register
-    /// which is mapped to 0xFF04.
+    /// $FF04: The system counter where the upper 8 bits are visible as DIV or the divider register
+    /// addressed as $FF04.
     sys_counter: HwReg16,
     /// 0xFF05: TIMA - timer counter.
     tima: HwReg8,
@@ -29,7 +32,7 @@ pub(crate) struct Timer {
     state: State,
 }
 
-impl core::default::Default for Timer {
+impl default::Default for Timer {
     fn default() -> Self {
         Self {
             sys_counter: HwReg16(0xABCC),
@@ -132,6 +135,7 @@ impl InterruptSource for Timer {
 }
 
 impl Timer {
+    /// Reset the system counter.
     fn reset_counter(&mut self) {
         // HW_BUG: Resetting DIV while the multiplexer bit corresponding to the current tick rate is set causes
         // TIMA to increment if it is running.
@@ -142,6 +146,7 @@ impl Timer {
         self.sys_counter.0 = 0;
     }
 
+    /// Write a `new_value` to `TAC`.
     fn write_tac(&mut self, new_value: u8) {
         let new_value = HwReg8(new_value);
         // HW_BUG: When changing TAC register value, if the old multiplexer bit is 0 but the new one is 1 and the new
@@ -160,6 +165,7 @@ impl Timer {
         self.tac = new_value;
     }
 
+    /// Write a `new_value` to `TIMA`.
     const fn write_tima(&mut self, new_value: u8) {
         // When TIMA is being reloaded, writes are ignored.
         if matches!(self.state, State::Reloading) {
@@ -175,6 +181,7 @@ impl Timer {
         }
     }
 
+    /// Write a `new_value` to `TMA`.
     const fn write_tma(&mut self, new_value: u8) {
         self.tma.0 = new_value;
 
@@ -184,6 +191,7 @@ impl Timer {
         }
     }
 
+    /// Increment `TIMA`.
     const fn inc_tima(&mut self) {
         let new_value = self.tima.0.wrapping_add(1);
         self.tima.0 = new_value;
@@ -196,11 +204,13 @@ impl Timer {
         }
     }
 
+    /// Return whether the timer is running.
     const fn is_running(&self) -> bool {
         // Check bit 2 of TAC
         self.tac.bit(BitShift8::Bit2)
     }
 
+    /// Return which bit is selected in the system counter due to the currently selected rate.
     fn rate_bit_select(tac: u8) -> BitShift16 {
         match tac & 0x3 {
             0b00 => BitShift16::Bit09,

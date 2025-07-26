@@ -1,31 +1,57 @@
+use core::{error, fmt};
 use std::{collections::VecDeque, ops::Range, str::CharIndices};
+
+/// Module of lexer states.
 pub mod state;
 
+/// A trait used to define a general lexer state for use when creating reusable lexing procedures.
 pub trait GeneralState {
+    /// Create a initial/normal state at byte offset `start`.
     fn initial(start: usize) -> Self;
+    /// Create a string lexing state at byte offset `start` using delimiter `closing`.
+    /// The `should_escape` flag signifies to the state machine whether to escape the closing character.
     fn string(start: usize, closing: char, should_escape: bool) -> Self;
+    /// Create the finished state.
     fn finished() -> Self;
 }
 
+/// Trait to be implemented by token types to indicate whether a given token is an EOF token.
 pub trait TokenWithEnd {
+    /// Check if the given token is EOF.
     fn is_eof(&self) -> bool;
 }
 
-pub trait GeneralToken<K: GeneralKeyword>: Sized + TokenWithEnd {
+impl<T: TokenWithEnd> TokenWithEnd for WithSpan<T> {
+    fn is_eof(&self) -> bool {
+        self.kind.is_eof()
+    }
+}
+
+/// A trait used to define a general token type and functions to create certain tokens.
+pub trait GeneralToken<K>: Sized + TokenWithEnd {
+    /// Create an EOF token at `offset` in bytes.
     fn eof(offset: usize) -> WithSpan<Self>;
+    /// Create a string token with the given span.
     fn string(span: Span) -> WithSpan<Self>;
+    /// Create a identifier token with the given span.
     fn ident(span: Span) -> WithSpan<Self>;
+    /// Create a keyword token with the given span.
     fn keyword(span: Span, keyword: K) -> WithSpan<Self>;
 }
 
+/// A trait to define a general lexer error type.
 pub trait GeneralError: Sized {
+    /// Create an unterminated string lexer error.
     fn unterminated_string(span: Span, delimiter: char) -> WithSpan<Self>;
 }
 
+/// A trait to define a general keyword token type.
 pub trait GeneralKeyword: Sized {
+    /// Parse a string to a keyword if it is a valid keyword.
     fn parse(lexeme: &str) -> Option<Self>;
 }
 
+/// A span of text in source defined by its starting byte offset and its length in bytes.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Span {
     /// The byte offset to the start of the span.
@@ -35,11 +61,14 @@ pub struct Span {
 }
 
 impl Span {
+    /// Return the range.
+    #[inline]
     pub const fn range(&self) -> Range<usize> {
         self.start..(self.start + self.length)
     }
 }
 
+/// A wrapper type around a `Kind` type (usually an enum) and its associated span.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct WithSpan<Kind> {
     /// The kind.
@@ -49,40 +78,39 @@ pub struct WithSpan<Kind> {
 }
 
 impl<T> WithSpan<T> {
+    /// Return the kind as a reference.
     #[inline]
     pub const fn get_kind(&self) -> &T {
         &self.kind
     }
 
-    #[inline]
-    pub const fn get_span(&self) -> &Span {
-        &self.span
-    }
-
+    /// Consume the wrapper and return the inner kind.
     #[inline]
     pub fn take_kind(self) -> T {
         self.kind
     }
 
+    /// Return the span.
     #[inline]
-    pub fn map_kind<U>(self, func: impl FnOnce(T) -> U) -> U {
-        func(self.kind)
+    pub const fn get_span(&self) -> &Span {
+        &self.span
     }
 
+    /// Consume the wrapper into its kind and span.
     #[inline]
     pub fn take(self) -> (T, Span) {
         (self.kind, self.span)
     }
-}
 
-impl<T: TokenWithEnd> TokenWithEnd for WithSpan<T> {
-    fn is_eof(&self) -> bool {
-        self.kind.is_eof()
+    /// Transform the kind from `T` to `U`.
+    #[inline]
+    pub fn map_kind<U>(self, func: impl FnOnce(T) -> U) -> U {
+        func(self.kind)
     }
 }
 
-impl<T: std::fmt::Display> std::fmt::Display for WithSpan<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: fmt::Display> fmt::Display for WithSpan<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "[{}..{}]: {}",
@@ -93,17 +121,17 @@ impl<T: std::fmt::Display> std::fmt::Display for WithSpan<T> {
     }
 }
 
-impl<T: std::error::Error> std::error::Error for WithSpan<T> {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl<T: error::Error> error::Error for WithSpan<T> {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         self.kind.source()
     }
 
-    fn cause(&self) -> Option<&dyn std::error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         self.source()
     }
 }
 
-/// Wrap a kind with a span.
+/// Wrap a type with a span.
 pub trait WrapWithSpan {
     /// Wrap self with a span.
     fn wrap(self, span: Span) -> WithSpan<Self>
@@ -135,20 +163,25 @@ impl<T> WrapWithSpan for T {
     }
 }
 
+/// Represents a source character.
 #[derive(Debug, Clone, Copy)]
 pub struct SourceChar {
+    /// The character itself.
     pub value: char,
+    /// The byte offset of the character in the source.
     pub offset: usize,
 }
 
 impl SourceChar {
+    /// Calculates the offset of the next character in the source assuming UTF-8 encoding.
     #[inline]
     pub const fn next_offset(&self) -> usize {
         self.offset + self.value.len_utf8()
     }
 }
 
-pub struct SourceLookup<'src> {
+/// An iterator over a source text to be used with lexers.
+struct SourceLookup<'src> {
     /// The source text.
     text: &'src str,
     /// An iterator over the characters.
@@ -158,13 +191,8 @@ pub struct SourceLookup<'src> {
 }
 
 impl<'src> SourceLookup<'src> {
-    #[inline]
-    pub fn new(source: &'src str) -> Self {
-        assert!(
-            source.len() < u32::MAX as usize,
-            "Lexers do not support files with more than {} bytes.",
-            u32::MAX - 1,
-        );
+    /// Create from a source string.
+    fn new(source: &'src str) -> Self {
         Self {
             text: source,
             chars: source.char_indices(),
@@ -173,8 +201,7 @@ impl<'src> SourceLookup<'src> {
     }
 
     /// Return the next character.
-    #[inline]
-    pub fn next_char(&mut self) -> Option<SourceChar> {
+    fn next_char(&mut self) -> Option<SourceChar> {
         match self.lookahead.pop_front() {
             Some(s) => Some(s),
             None => {
@@ -185,19 +212,17 @@ impl<'src> SourceLookup<'src> {
     }
 
     /// Populate the lookahead buffer.
-    #[inline]
-    pub fn put_back(&mut self, chars: &[SourceChar]) {
+    fn put_back(&mut self, chars: &[SourceChar]) {
         self.lookahead.extend(chars);
     }
 
     /// Return the source.
-    pub const fn get_text(&self) -> &'src str {
+    const fn get_text(&self) -> &'src str {
         self.text
     }
 
     /// Return the lexeme associated with the given span if the span is valid.
-    #[inline]
-    pub fn get_lexeme(&self, span: &Span) -> Option<&'src str> {
+    fn get_lexeme(&self, span: &Span) -> Option<&'src str> {
         let range = span.range();
         if range.end > self.text.len() {
             return None;
@@ -206,9 +231,13 @@ impl<'src> SourceLookup<'src> {
     }
 }
 
+/// The characters to put back into the lexer in cases where the state machine needs to backtrack.
 pub enum LexerPutBack {
+    /// No characters to put back.
     None,
+    /// One character to put back.
     One([SourceChar; 1]),
+    /// Two characters to put back.
     Two([SourceChar; 2]),
 }
 
@@ -223,10 +252,11 @@ impl LexerPutBack {
     }
 }
 
+/// Represents a state transition in the lexer.
 pub struct LexerStateTransition<S, T, E> {
-    /// The new state to transition.
+    /// The new state to transition to unless it is `None` then no state change will take place.
     pub new_state: Option<S>,
-    /// The lexed token or an error.
+    /// A token or an error if it is lexed.
     pub token_or_error: Option<Result<T, E>>,
     /// The characters to put back.
     pub put_back: LexerPutBack,
@@ -234,10 +264,9 @@ pub struct LexerStateTransition<S, T, E> {
 
 pub trait LexerState {
     /// The token type.
-    type Token: TokenWithEnd + Clone;
+    type Token;
     /// The error type.
-    type Error: Clone;
-    type Keyword: GeneralKeyword;
+    type Error;
 
     fn initial() -> Self;
 
@@ -281,19 +310,6 @@ where
 
     /// Lex the next token.
     #[inline]
-    pub fn peek_token(&mut self) -> Result<S::Token, S::Error> {
-        match &self.lookahead {
-            Some(next_token) => next_token.clone(),
-            None => {
-                let next_token = self.next_token_impl();
-                self.lookahead = Some(next_token.clone());
-                next_token
-            }
-        }
-    }
-
-    /// Lex the next token.
-    #[inline]
     pub fn next_token(&mut self) -> Result<S::Token, S::Error> {
         if let Some(next_token) = self.lookahead.take() {
             return next_token;
@@ -328,9 +344,30 @@ where
     }
 }
 
+impl<S> Lexer<'_, S>
+where
+    S: LexerState,
+    S::Token: Clone,
+    S::Error: Clone,
+{
+    /// Lex the next token.
+    #[inline]
+    pub fn peek_token(&mut self) -> Result<S::Token, S::Error> {
+        match &self.lookahead {
+            Some(next_token) => next_token.clone(),
+            None => {
+                let next_token = self.next_token_impl();
+                self.lookahead = Some(next_token.clone());
+                next_token
+            }
+        }
+    }
+}
+
 impl<'src, S> IntoIterator for Lexer<'src, S>
 where
     S: LexerState,
+    S::Token: TokenWithEnd,
 {
     type Item = Result<S::Token, S::Error>;
     type IntoIter = LexerIterator<'src, S>;
@@ -343,6 +380,7 @@ where
     }
 }
 
+/// Iterator over tokens.
 pub struct LexerIterator<'src, S: LexerState> {
     lexer: Lexer<'src, S>,
     is_eof: bool,
@@ -351,6 +389,7 @@ pub struct LexerIterator<'src, S: LexerState> {
 impl<S> Iterator for LexerIterator<'_, S>
 where
     S: LexerState,
+    S::Token: TokenWithEnd,
 {
     type Item = Result<S::Token, S::Error>;
 
@@ -374,19 +413,23 @@ mod tests {}
 
 pub mod test_utils {
     use crate::WithSpan;
+    use core::{
+        cmp,
+        fmt::{self, Write},
+    };
 
     type TokenStream<T, E> = [Result<WithSpan<T>, WithSpan<E>>];
+
+    /// Assert that two token streams are the same, otherwise print the difference.
     #[inline]
     pub fn assert_token_stream_eq<T, E>(
         input: &str,
         actual_stream: &TokenStream<T, E>,
         expected_stream: &TokenStream<T, E>,
     ) where
-        T: PartialEq + std::fmt::Debug,
-        E: PartialEq + std::fmt::Debug,
+        T: PartialEq + fmt::Debug,
+        E: PartialEq + fmt::Debug,
     {
-        use std::fmt::Write;
-
         if actual_stream == expected_stream {
             return;
         }
@@ -479,12 +522,12 @@ pub mod test_utils {
         }
 
         let rest = match actual_stream.len().cmp(&expected_stream.len()) {
-            std::cmp::Ordering::Less => {
+            cmp::Ordering::Less => {
                 writeln!(buffer, "Expected tokens has extra tokens!").unwrap();
                 Some(expected_stream.iter().enumerate().skip(actual_stream.len()))
             }
-            std::cmp::Ordering::Equal => None,
-            std::cmp::Ordering::Greater => {
+            cmp::Ordering::Equal => None,
+            cmp::Ordering::Greater => {
                 writeln!(buffer, "Actual tokens has extra tokens!").unwrap();
                 Some(actual_stream.iter().enumerate().skip(expected_stream.len()))
             }

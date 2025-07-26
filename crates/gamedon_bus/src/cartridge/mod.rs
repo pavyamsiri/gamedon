@@ -1,54 +1,84 @@
 use crate::{
     TaggedMbc,
-    mbc::{Mbc1, MbcCreationError, MbcKind, NoMbc, RamSize, RomSize},
+    mbc::{Mbc1, MbcCreationError, NoMbc},
 };
 use thiserror::Error;
+
+pub(crate) use size::{RamSize, RomSize};
+
+/// Types to represent ROM and RAM sizes;
+mod size;
 
 /// The size of the cartridge header plus the leading 0x100 bytes.
 const HEADER_PLUS_PREFIX_SIZE: usize = 0x150;
 
+/// Errors that can occur when loading the cartridge header.
 #[derive(Error, Debug)]
 pub enum HeaderLoadError {
+    /// The header is too small.
     #[error(
         "The cartridge header must at least be {HEADER_PLUS_PREFIX_SIZE} but it is {actual} bytes instead."
     )]
     TooSmall { actual: usize },
+    /// The header's specified ROM size is not valid.
     #[error("The ROM size byte is an invalid value {byte:#04X}.")]
     InvalidRomSize { byte: u8 },
+    /// The header's specified RAM size is not valid.
     #[error("The RAM size byte is an invalid value {byte:#04X}.")]
     InvalidRamSize { byte: u8 },
+    /// The header's cartridge type is not valid.
     #[error("The cartridge type byte is an invalid value {byte:#04X}.")]
     InvalidCartridgeType { byte: u8 },
 }
 
+/// The color mode.
 #[derive(Debug)]
 pub(crate) enum ColorMode {
-    CgbOff,
-    CgbOptional,
-    CgbRequired,
+    /// The cartridge has no CGB compatibility.
+    Off,
+    /// The cartridge has optional CGB features.
+    Optional,
+    /// The cartridge has required CGB features.
+    Required,
 }
 
+/// The intended vendor destination of the cartridge.
 #[derive(Debug)]
 pub(crate) enum VendorDestination {
+    /// Japan or overseas.
     Japan,
+    /// Overseas only.
     OverseasOnly,
+    /// Unknown.
     Unknown,
 }
 
+/// The cartridge header.
+#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct CartridgeHeader {
+    /// The cartridge title.
     title: String,
+    /// The color mode.
     color_mode: ColorMode,
+    /// The licensee name.
     licensee: &'static str,
+    /// Whether the cartridge supports SGB functions.
     sgb_supported: bool,
-    cartridge_type: MbcKind,
+    /// The cartridge type.
+    cartridge_type: CartridgeType,
+    /// The size of the ROM.
     rom_size: RomSize,
+    /// The size of the RAM.
     ram_size: RamSize,
+    /// The vendor destination.
     destination: VendorDestination,
+    /// The version.
     version: u8,
 }
 
 impl CartridgeHeader {
+    /// Parse `bytes` into the cartridge header.
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, HeaderLoadError> {
         if bytes.len() < HEADER_PLUS_PREFIX_SIZE {
             return Err(HeaderLoadError::TooSmall {
@@ -56,50 +86,50 @@ impl CartridgeHeader {
             });
         }
 
-        // Title: 0x0134-0x0143
+        // Title: $0134-$0143
         let title = String::from_utf8_lossy(&bytes[0x0134..=0x0143])
             .trim_end_matches('\0')
             .to_owned();
 
-        // CGB flag: 0x0143
+        // CGB flag: $0143
         let color_mode = match bytes[0x0143] {
-            0x80 => ColorMode::CgbOptional,
-            0xC0 => ColorMode::CgbRequired,
-            _ => ColorMode::CgbOff,
+            0x80 => ColorMode::Optional,
+            0xC0 => ColorMode::Required,
+            _ => ColorMode::Off,
         };
 
-        // Old licensee code: 0x014B
+        // Old licensee code: $014B
         let old_licensee = bytes[0x014B];
-        // New licensee code: 0x0144-0x0145
+        // New licensee code: $0144-$0145
         let new_licensee = u16::from_le_bytes([bytes[0x0144], bytes[0x0145]]);
         let licensee = Self::get_licensee(old_licensee, new_licensee);
-        // SGB flag: 0x0146
+        // SGB flag: $0146
         let sgb_supported = bytes[0x0146] == 0x03;
-        // Cartridge type: 0x0147
-        let cartridge_type = MbcKind::from_byte(bytes[0x0147]).ok_or_else(|| {
+        // Cartridge type: $0147
+        let cartridge_type = CartridgeType::from_byte(bytes[0x0147]).ok_or_else(|| {
             HeaderLoadError::InvalidCartridgeType {
                 byte: bytes[0x0147],
             }
         })?;
 
-        // ROM size: 0x0148
+        // ROM size: $0148
         let rom_size =
             RomSize::from_byte(bytes[0x0148]).ok_or_else(|| HeaderLoadError::InvalidRomSize {
                 byte: bytes[0x0148],
             })?;
 
-        // RAM size: 0x0149
+        // RAM size: $0149
         let ram_size =
             RamSize::from_byte(bytes[0x0149]).ok_or_else(|| HeaderLoadError::InvalidRamSize {
                 byte: bytes[0x0149],
             })?;
-        // Vendor destination: 0x014A
+        // Vendor destination: $014A
         let destination = match bytes[0x014A] {
             0x00 => VendorDestination::Japan,
             0x01 => VendorDestination::OverseasOnly,
             _ => VendorDestination::Unknown,
         };
-        // Version: 0x014C
+        // Version: $014C
         let version = bytes[0x014C];
 
         Ok(Self {
@@ -115,6 +145,7 @@ impl CartridgeHeader {
         })
     }
 
+    /// Return the licensee name given the old licensee code and the new licensee code.
     const fn get_licensee(old: u8, new: u16) -> &'static str {
         if old == 0x33 {
             Self::get_new_licensee(new)
@@ -123,6 +154,7 @@ impl CartridgeHeader {
         }
     }
 
+    /// Return the licensee name given the old licensee `code`
     const fn get_old_licensee(code: u8) -> &'static str {
         match code {
             0x00 => "None",
@@ -276,6 +308,7 @@ impl CartridgeHeader {
         }
     }
 
+    /// Return the licensee name given the new licensee `code`
     const fn get_new_licensee(code: u16) -> &'static str {
         match code {
             0x3030 => "None",
@@ -343,24 +376,134 @@ impl CartridgeHeader {
         }
     }
 
+    /// Return the memory bank controller of the cartridge.
     pub(crate) fn get_mbc(&self) -> Result<TaggedMbc, MbcCreationError> {
         match self.cartridge_type {
-            MbcKind::RomOnly { .. } => Ok(TaggedMbc::RomOnly(NoMbc::new(
+            CartridgeType::RomOnly { .. } => Ok(TaggedMbc::RomOnly(NoMbc::new(
                 self.rom_size,
                 self.ram_size,
             )?)),
-            MbcKind::Mbc1 { .. } => Ok(TaggedMbc::Mbc1(Mbc1::new(self.rom_size, self.ram_size)?)),
-            MbcKind::Mbc2 { .. } => unimplemented!(),
-            MbcKind::Mbc3 { .. } => unimplemented!(),
-            MbcKind::Mbc5 { .. } => unimplemented!(),
-            MbcKind::Mbc6 => unimplemented!(),
-            MbcKind::Mbc7 => unimplemented!(),
-            MbcKind::Camera => unimplemented!(),
-            MbcKind::BandaiTama5 => unimplemented!(),
-            MbcKind::Mmm01 { .. } => unimplemented!(),
-            MbcKind::M161 => unimplemented!(),
-            MbcKind::HuC1 => unimplemented!(),
-            MbcKind::HuCDash3 => unimplemented!(),
+            CartridgeType::Mbc1 { .. } => {
+                Ok(TaggedMbc::Mbc1(Mbc1::new(self.rom_size, self.ram_size)?))
+            }
+            CartridgeType::Mbc2 { .. } => unimplemented!(),
+            CartridgeType::Mbc3 { .. } => unimplemented!(),
+            CartridgeType::Mbc5 { .. } => unimplemented!(),
+            CartridgeType::Mbc6 => unimplemented!(),
+            CartridgeType::Mbc7 => unimplemented!(),
+            CartridgeType::Camera => unimplemented!(),
+            CartridgeType::BandaiTama5 => unimplemented!(),
+            CartridgeType::Mmm01 { .. } => unimplemented!(),
+            CartridgeType::M161 => unimplemented!(),
+            CartridgeType::HuC1 => unimplemented!(),
+            CartridgeType::HuCDash3 => unimplemented!(),
+        }
+    }
+}
+
+/// The memory controller type.
+#[allow(dead_code)]
+#[derive(Debug)]
+pub(crate) enum CartridgeType {
+    /// For games that are 32KiB or less, the ROM gets directly mapped
+    /// to memory at $0000-$7FFF.
+    RomOnly {
+        /// Whether the RAM is battery backed.
+        has_battery: bool,
+    },
+    /// MBC1 can support up to 2MiB ROMs and 32KiB RAM.
+    Mbc1 {
+        /// Whether the RAM is battery backed.
+        has_battery: bool,
+    },
+    /// MBC2 can support up to 256KiB ROMs and 512x4 bits RAM.
+    Mbc2 {
+        /// Whether the RAM is battery backed.
+        has_battery: bool,
+    },
+    /// MBC3 can support up to 2MiB ROMs and 32KiB RAM and also an RTC timer.
+    Mbc3 {
+        /// Whether there is an RTC timer.
+        has_timer: bool,
+        /// Whether the RAM is battery backed.
+        has_battery: bool,
+    },
+    /// MBC5 can support up to 8MiB ROMs and 128KiB RAM.
+    /// Is guaranteed to work with CGB double speed mode.
+    Mbc5 {
+        /// Whether the RAM is battery backed.
+        has_battery: bool,
+        /// Whether the rumble pack is included.
+        has_rumble: bool,
+    },
+    /// MBC6 controller.
+    Mbc6,
+    /// MBC7 controller.
+    Mbc7,
+    /// A pocket camera.
+    Camera,
+    /// Unimplemented MBC.
+    BandaiTama5,
+    /// Unimplemented MBC.
+    Mmm01 {
+        /// Whether the RAM is battery backed.
+        has_battery: bool,
+    },
+    /// Unimplemented MBC.
+    M161,
+    /// Unimplemented MBC.
+    HuC1,
+    /// Unimplemented MBC.
+    HuCDash3,
+}
+
+impl CartridgeType {
+    /// Parse the cartridge type byte.
+    pub(crate) const fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            0x00 | 0x08 => Some(Self::RomOnly { has_battery: false }),
+            0x01 | 0x02 => Some(Self::Mbc1 { has_battery: false }),
+            0x03 => Some(Self::Mbc1 { has_battery: true }),
+            0x05 => Some(Self::Mbc2 { has_battery: false }),
+            0x06 => Some(Self::Mbc2 { has_battery: true }),
+            0x09 => Some(Self::RomOnly { has_battery: true }),
+            0x0B | 0x0C => Some(Self::Mmm01 { has_battery: false }),
+            0x0D => Some(Self::Mmm01 { has_battery: true }),
+            0x0F | 0x10 => Some(Self::Mbc3 {
+                has_timer: true,
+                has_battery: true,
+            }),
+            0x11 | 0x12 => Some(Self::Mbc3 {
+                has_timer: false,
+                has_battery: false,
+            }),
+            0x13 => Some(Self::Mbc3 {
+                has_timer: false,
+                has_battery: true,
+            }),
+            0x19 | 0x1A => Some(Self::Mbc5 {
+                has_battery: false,
+                has_rumble: false,
+            }),
+            0x1B => Some(Self::Mbc5 {
+                has_battery: true,
+                has_rumble: false,
+            }),
+            0x1C | 0x1D => Some(Self::Mbc5 {
+                has_battery: false,
+                has_rumble: true,
+            }),
+            0x1E => Some(Self::Mbc5 {
+                has_battery: true,
+                has_rumble: true,
+            }),
+            0x20 => Some(Self::Mbc6),
+            0x22 => Some(Self::Mbc7),
+            0xFC => Some(Self::Camera),
+            0xFD => Some(Self::BandaiTama5),
+            0xFE => Some(Self::HuCDash3),
+            0xFF => Some(Self::HuC1),
+            _ => None,
         }
     }
 }

@@ -1,16 +1,17 @@
+use super::{Error, State, Token};
 use gamedon_lexer::{
     GeneralState, LexerPutBack, LexerStateTransition, SourceChar, Span, WithSpan, WrapWithSpan,
 };
 
-use super::{Error, State, Token, initial::InitialState};
-
 /// State when we see `0` in initial state.
-pub struct ZeroState {
-    pub start: usize,
+pub(crate) struct ZeroState {
+    /// The byte offset of the state.
+    pub(crate) start: usize,
 }
 
 impl ZeroState {
-    pub fn execute(
+    /// Execute the state given the source text and a source character.
+    pub(crate) fn execute(
         &self,
         text: &str,
         next_char: Option<SourceChar>,
@@ -50,6 +51,7 @@ impl ZeroState {
         }
     }
 
+    /// Return the span from the start of the state with the given `length`.
     const fn span(&self, length: usize) -> Span {
         Span {
             start: self.start,
@@ -59,12 +61,14 @@ impl ZeroState {
 }
 
 /// State when we see `0x` or `0X` in initial state.
-pub struct FirstHexDigitState {
-    start: usize,
+pub(crate) struct FirstHexDigitState {
+    /// The byte offset of the state.
+    pub(crate) start: usize,
 }
 
 impl FirstHexDigitState {
-    pub fn execute(
+    /// Execute the state given the source text and a source character.
+    pub(crate) fn execute(
         &self,
         text: &str,
         next_char: Option<SourceChar>,
@@ -104,12 +108,14 @@ impl FirstHexDigitState {
 }
 
 /// State when we see `0x` or `0X` and a hexdigit.
-pub struct HexDigitState {
-    start: usize,
+pub(crate) struct HexDigitState {
+    /// The byte offset of the state.
+    pub(crate) start: usize,
 }
 
 impl HexDigitState {
-    pub fn execute(
+    /// Execute the state given the source text and a source character.
+    pub(crate) fn execute(
         &self,
         text: &str,
         next_char: Option<SourceChar>,

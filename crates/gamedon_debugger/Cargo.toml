@@ -14,6 +14,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 gamedon_bus = { workspace = true }
 gamedon_cpu = { workspace = true }
+gamedon_file = { workspace = true }
 gamedon_lexer = { workspace = true }
 
 [lints]

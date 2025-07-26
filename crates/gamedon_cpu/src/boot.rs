@@ -1,35 +1,40 @@
 use crate::Cpu;
 
+/// The boot ROM to use.
 #[derive(Debug, Clone, Copy)]
 pub enum BootRom {
     // Monochrome models
-    Dmg0,
+    /// The boot ROM for the DMG-01 (Original Gameboy) model.
     Dmg,
+    /// The boot ROM for the MGB (Gameboy Pocket) model.
     Mgb,
     // Super Game Boy
+    /// The boot ROM for the SGB (Super Gameboy) model.
     Sgb,
+    /// The boot ROM for the SGB2 (Super Gameboy 2) model.
     Sgb2,
     // Color models
-    Cgb0,
+    /// The boot ROM for the CGB (Gameboy Color) model.
     Cgb,
-    Agb0,
-    Agb,
     // Debug
+    /// The boot ROM register values to be compatible with the `gameboy-doctor` utility.
     Doctor,
 }
 
 impl Cpu {
+    /// Set the state after the given boot `rom`.
+    #[inline]
     pub fn boot(&mut self, rom: BootRom) {
         match rom {
             BootRom::Dmg => self.boot_dmg(),
             BootRom::Doctor => self.boot_doctor(),
-            _ => {
-                // TODO(pavyamsiri): Implement boot roms
-                todo!()
+            rom => {
+                todo!("implement boot rom {rom:?}")
             }
         }
     }
 
+    /// Set the state after the DMG boot rom has run.
     fn boot_dmg(&mut self) {
         // Set register flags
         self.registers.set_zero_flag(true);
@@ -51,6 +56,7 @@ impl Cpu {
         self.registers.set_sp(0xFFFE);
     }
 
+    /// Set the state that `gameboy-doctor` is in after its boot rom.
     fn boot_doctor(&mut self) {
         // Set register flags
         self.registers.set_zero_flag(true);

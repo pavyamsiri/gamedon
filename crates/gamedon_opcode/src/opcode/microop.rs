@@ -1,8 +1,17 @@
-use gamedon_bits::BitShift8;
-
 use super::{Condition, Instruction};
 use crate::{Reg8, Reg16};
+use gamedon_bits::BitShift8;
 use std::collections::VecDeque;
+
+macro_rules! enqueue {
+    ($queue:expr, $($op:expr),* $(,)?) => {
+        {
+            $(
+                ($queue).push_back($op);
+            )*
+        }
+    };
+}
 
 /// This micro op instruction set assumes there exists some hidden registers called:
 /// - TMP1: The primary temporary byte register.
@@ -164,29 +173,20 @@ pub enum MicroOp {
 }
 
 impl Instruction {
+    /// Decompose an instruction into its micro ops and pipe them into a queue.
     pub fn decompose(self, queue: &mut VecDeque<MicroOp>) {
-        macro_rules! enqueue {
-            ($queue:expr, $($op:expr),* $(,)?) => {
-                {
-                    $(
-                        ($queue).push_back($op);
-                    )*
-                }
-            };
-        }
-
         match self {
             // Single cycle.
-            Instruction::Nop => enqueue!(queue, MicroOp::IncPC, MicroOp::Yield),
-            Instruction::Halt => enqueue!(queue, MicroOp::IncPC, MicroOp::Halt, MicroOp::Yield),
-            Instruction::Stop => enqueue!(queue, MicroOp::IncPC, MicroOp::Stop, MicroOp::Yield),
-            Instruction::Ei => enqueue!(queue, MicroOp::IncPC, MicroOp::Ei, MicroOp::Yield),
-            Instruction::Di => enqueue!(queue, MicroOp::IncPC, MicroOp::Di, MicroOp::Yield),
-            Instruction::Daa => enqueue!(queue, MicroOp::IncPC, MicroOp::Daa, MicroOp::Yield),
-            Instruction::Scf => enqueue!(queue, MicroOp::IncPC, MicroOp::Scf, MicroOp::Yield),
-            Instruction::Ccf => enqueue!(queue, MicroOp::IncPC, MicroOp::Ccf, MicroOp::Yield),
-            Instruction::Cpl => enqueue!(queue, MicroOp::IncPC, MicroOp::Cpl, MicroOp::Yield),
-            Instruction::Rlca => enqueue!(
+            Self::Nop => enqueue!(queue, MicroOp::IncPC, MicroOp::Yield),
+            Self::Halt => enqueue!(queue, MicroOp::IncPC, MicroOp::Halt, MicroOp::Yield),
+            Self::Stop => enqueue!(queue, MicroOp::IncPC, MicroOp::Stop, MicroOp::Yield),
+            Self::Ei => enqueue!(queue, MicroOp::IncPC, MicroOp::Ei, MicroOp::Yield),
+            Self::Di => enqueue!(queue, MicroOp::IncPC, MicroOp::Di, MicroOp::Yield),
+            Self::Daa => enqueue!(queue, MicroOp::IncPC, MicroOp::Daa, MicroOp::Yield),
+            Self::Scf => enqueue!(queue, MicroOp::IncPC, MicroOp::Scf, MicroOp::Yield),
+            Self::Ccf => enqueue!(queue, MicroOp::IncPC, MicroOp::Ccf, MicroOp::Yield),
+            Self::Cpl => enqueue!(queue, MicroOp::IncPC, MicroOp::Cpl, MicroOp::Yield),
+            Self::Rlca => enqueue!(
                 queue,
                 MicroOp::ReadReg8(Reg8::A),
                 MicroOp::RotateLeft,
@@ -197,7 +197,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::Rla => enqueue!(
+            Self::Rla => enqueue!(
                 queue,
                 MicroOp::ReadReg8(Reg8::A),
                 MicroOp::RotateLeftCarry,
@@ -208,7 +208,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::Rrca => enqueue!(
+            Self::Rrca => enqueue!(
                 queue,
                 MicroOp::ReadReg8(Reg8::A),
                 MicroOp::RotateRight,
@@ -219,7 +219,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::Rra => enqueue!(
+            Self::Rra => enqueue!(
                 queue,
                 MicroOp::ReadReg8(Reg8::A),
                 MicroOp::RotateRightCarry,
@@ -230,20 +230,20 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::Invalid => {
+            Self::Invalid => {
                 enqueue!(queue, MicroOp::Invalid, MicroOp::IncPC, MicroOp::Yield)
             }
-            Instruction::Prefix => {
+            Self::Prefix => {
                 enqueue!(queue, MicroOp::FetchPrefix, MicroOp::IncPC, MicroOp::Yield)
             }
-            Instruction::LdReg8Reg8 { dst, src } => enqueue!(
+            Self::LdReg8Reg8 { dst, src } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(src),
                 MicroOp::WriteReg8(dst),
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::LdReg8Mem16 { dst, src } => enqueue!(
+            Self::LdReg8Mem16 { dst, src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(src),
@@ -252,7 +252,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::LdReg8Imm8 { dst } => enqueue!(
+            Self::LdReg8Imm8 { dst } => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -260,7 +260,7 @@ impl Instruction {
                 MicroOp::WriteReg8(dst),
                 MicroOp::Yield,
             ),
-            Instruction::LdMem16Reg8 { dst, src } => enqueue!(
+            Self::LdMem16Reg8 { dst, src } => enqueue!(
                 queue,
                 // Takes 2 M-cycles.
                 MicroOp::Yield,
@@ -274,7 +274,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::LdMem16Imm8 { dst } => enqueue!(
+            Self::LdMem16Imm8 { dst } => enqueue!(
                 queue,
                 // Takes 3 M-cycles.
                 MicroOp::IncPC,
@@ -289,7 +289,7 @@ impl Instruction {
                 // End.
                 MicroOp::Yield,
             ),
-            Instruction::LdMem8Reg8 { dst, src } => enqueue!(
+            Self::LdMem8Reg8 { dst, src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 // Read reg into ADDR as 0xFF00 + (reg).
@@ -302,7 +302,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::LdReg8Mem8 { dst, src } => enqueue!(
+            Self::LdReg8Mem8 { dst, src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 // Read reg into ADDR as 0xFF00 + (reg).
@@ -315,7 +315,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::LdAdr8Reg8 { src } => enqueue!(
+            Self::LdAdr8Reg8 { src } => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -330,7 +330,7 @@ impl Instruction {
                 MicroOp::WriteByteIntoMem,
                 MicroOp::Yield,
             ),
-            Instruction::LdReg8Adr8 { dst } => enqueue!(
+            Self::LdReg8Adr8 { dst } => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -345,7 +345,7 @@ impl Instruction {
                 MicroOp::WriteReg8(dst),
                 MicroOp::Yield,
             ),
-            Instruction::LdAdr16Reg8 { src } => enqueue!(
+            Self::LdAdr16Reg8 { src } => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -362,7 +362,7 @@ impl Instruction {
                 MicroOp::WriteByteIntoMem,
                 MicroOp::Yield,
             ),
-            Instruction::LdReg8Adr16 { dst } => enqueue!(
+            Self::LdReg8Adr16 { dst } => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -380,7 +380,7 @@ impl Instruction {
                 MicroOp::WriteReg8(dst),
                 MicroOp::Yield,
             ),
-            Instruction::LdIncMem16Reg8 { dst, src } => enqueue!(
+            Self::LdIncMem16Reg8 { dst, src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(dst),
@@ -391,7 +391,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::LdDecMem16Reg8 { dst, src } => enqueue!(
+            Self::LdDecMem16Reg8 { dst, src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(dst),
@@ -402,7 +402,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::LdIncReg8Mem16 { dst, src } => enqueue!(
+            Self::LdIncReg8Mem16 { dst, src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(src),
@@ -413,7 +413,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::LdDecReg8Mem16 { dst, src } => enqueue!(
+            Self::LdDecReg8Mem16 { dst, src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(src),
@@ -424,7 +424,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::LdReg16Imm16 { dst } => enqueue!(
+            Self::LdReg16Imm16 { dst } => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -435,7 +435,7 @@ impl Instruction {
                 MicroOp::WriteReg8(dst.hi()),
                 MicroOp::Yield,
             ),
-            Instruction::LdAdr16Reg16 { src } => enqueue!(
+            Self::LdAdr16Reg16 { src } => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -453,7 +453,7 @@ impl Instruction {
                 MicroOp::WriteByteIntoMem,
                 MicroOp::Yield,
             ),
-            Instruction::LdReg16Reg16 { dst, src } => enqueue!(
+            Self::LdReg16Reg16 { dst, src } => enqueue!(
                 queue,
                 MicroOp::ReadReg16(src),
                 MicroOp::WriteReg16(dst),
@@ -461,7 +461,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::LdReg16Off8 { dst } => enqueue!(
+            Self::LdReg16Off8 { dst } => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -476,7 +476,7 @@ impl Instruction {
                 MicroOp::Yield,
                 MicroOp::Yield,
             ),
-            Instruction::IncReg8 { reg } => enqueue!(
+            Self::IncReg8 { reg } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(reg),
                 MicroOp::AluInc8,
@@ -484,7 +484,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::DecReg8 { reg } => enqueue!(
+            Self::DecReg8 { reg } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(reg),
                 MicroOp::AluDec8,
@@ -492,7 +492,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::IncMem16 { reg } => enqueue!(
+            Self::IncMem16 { reg } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(reg),
@@ -503,7 +503,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::DecMem16 { reg } => enqueue!(
+            Self::DecMem16 { reg } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(reg),
@@ -514,7 +514,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::IncReg16 { reg } => enqueue!(
+            Self::IncReg16 { reg } => enqueue!(
                 queue,
                 MicroOp::ReadReg16(reg),
                 MicroOp::IncAddr,
@@ -526,7 +526,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::DecReg16 { reg } => enqueue!(
+            Self::DecReg16 { reg } => enqueue!(
                 queue,
                 MicroOp::ReadReg16(reg),
                 MicroOp::DecAddr,
@@ -538,7 +538,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::AddReg16Reg16 { dst, src } => enqueue!(
+            Self::AddReg16Reg16 { dst, src } => enqueue!(
                 queue,
                 MicroOp::ReadReg16(dst),
                 MicroOp::AluAddU16Reg16(src),
@@ -550,7 +550,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::AddReg16Off8 { dst } => enqueue!(
+            Self::AddReg16Off8 { dst } => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -565,7 +565,7 @@ impl Instruction {
                 MicroOp::WriteReg8(dst.hi()),
                 MicroOp::Yield,
             ),
-            Instruction::PushReg16 { src } => enqueue!(
+            Self::PushReg16 { src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::Yield,
@@ -583,7 +583,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::PopReg16 { dst } => enqueue!(
+            Self::PopReg16 { dst } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 // Write low byte
@@ -602,7 +602,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::Jr => enqueue!(
+            Self::Jr => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -614,7 +614,7 @@ impl Instruction {
                 MicroOp::WritePC,
                 MicroOp::Yield,
             ),
-            Instruction::Jrc { condition } => enqueue!(
+            Self::Jrc { condition } => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -628,7 +628,7 @@ impl Instruction {
                 MicroOp::Yield,
                 MicroOp::EndCondition,
             ),
-            Instruction::Jp => enqueue!(
+            Self::Jp => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -642,7 +642,7 @@ impl Instruction {
                 MicroOp::WritePC,
                 MicroOp::Yield,
             ),
-            Instruction::Jpc { condition } => enqueue!(
+            Self::Jpc { condition } => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -658,13 +658,13 @@ impl Instruction {
                 MicroOp::Yield,
                 MicroOp::EndCondition,
             ),
-            Instruction::JpReg16 { reg } => enqueue!(
+            Self::JpReg16 { reg } => enqueue!(
                 queue,
                 MicroOp::ReadReg16(reg),
                 MicroOp::WritePC,
                 MicroOp::Yield,
             ),
-            Instruction::Ret => enqueue!(
+            Self::Ret => enqueue!(
                 queue,
                 MicroOp::Yield,
                 // Write low byte
@@ -683,7 +683,7 @@ impl Instruction {
                 MicroOp::WritePC,
                 MicroOp::Yield,
             ),
-            Instruction::Retc { condition } => enqueue!(
+            Self::Retc { condition } => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -706,7 +706,7 @@ impl Instruction {
                 MicroOp::EndCondition,
                 MicroOp::Yield,
             ),
-            Instruction::Reti => enqueue!(
+            Self::Reti => enqueue!(
                 queue,
                 MicroOp::Yield,
                 // Write low byte
@@ -727,7 +727,7 @@ impl Instruction {
                 MicroOp::SetIME,
                 MicroOp::Yield,
             ),
-            Instruction::Call => enqueue!(
+            Self::Call => enqueue!(
                 queue,
                 // 1. Fetch
                 MicroOp::IncPC,
@@ -754,7 +754,7 @@ impl Instruction {
                 MicroOp::WritePC,
                 MicroOp::Yield,
             ),
-            Instruction::Callc { condition } => enqueue!(
+            Self::Callc { condition } => enqueue!(
                 queue,
                 // 1. Fetch
                 MicroOp::IncPC,
@@ -783,7 +783,7 @@ impl Instruction {
                 // 4b. Final yield
                 MicroOp::Yield,
             ),
-            Instruction::Rst { target } => enqueue!(
+            Self::Rst { target } => enqueue!(
                 queue,
                 // 1. Fetch
                 MicroOp::Yield,
@@ -809,14 +809,14 @@ impl Instruction {
                 MicroOp::WritePC,
                 MicroOp::Yield,
             ),
-            Instruction::AddReg8 { src } => enqueue!(
+            Self::AddReg8 { src } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(src),
                 MicroOp::AluAdd8,
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::AddMem16 { src } => enqueue!(
+            Self::AddMem16 { src } => enqueue!(
                 queue,
                 // 1. Fetch
                 MicroOp::Yield,
@@ -827,7 +827,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::AddImm8 => enqueue!(
+            Self::AddImm8 => enqueue!(
                 queue,
                 // 1. Fetch
                 MicroOp::IncPC,
@@ -837,14 +837,14 @@ impl Instruction {
                 MicroOp::AluAdd8,
                 MicroOp::Yield,
             ),
-            Instruction::AdcReg8 { src } => enqueue!(
+            Self::AdcReg8 { src } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(src),
                 MicroOp::AluAdc8,
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::AdcMem16 { src } => enqueue!(
+            Self::AdcMem16 { src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(src),
@@ -853,7 +853,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::AdcImm8 => enqueue!(
+            Self::AdcImm8 => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -862,14 +862,14 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::SubReg8 { src } => enqueue!(
+            Self::SubReg8 { src } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(src),
                 MicroOp::AluSub8,
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::SubMem16 { src } => enqueue!(
+            Self::SubMem16 { src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(src),
@@ -878,7 +878,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::SubImm8 => enqueue!(
+            Self::SubImm8 => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -887,14 +887,14 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::SbcReg8 { src } => enqueue!(
+            Self::SbcReg8 { src } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(src),
                 MicroOp::AluSbc8,
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::SbcMem16 { src } => enqueue!(
+            Self::SbcMem16 { src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(src),
@@ -903,7 +903,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::SbcImm8 => enqueue!(
+            Self::SbcImm8 => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -912,14 +912,14 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::AndReg8 { src } => enqueue!(
+            Self::AndReg8 { src } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(src),
                 MicroOp::AluAnd8,
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::AndMem16 { src } => enqueue!(
+            Self::AndMem16 { src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(src),
@@ -928,7 +928,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::AndImm8 => enqueue!(
+            Self::AndImm8 => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -937,14 +937,14 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::XorReg8 { src } => enqueue!(
+            Self::XorReg8 { src } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(src),
                 MicroOp::AluXor8,
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::XorMem16 { src } => enqueue!(
+            Self::XorMem16 { src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(src),
@@ -953,7 +953,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::XorImm8 => enqueue!(
+            Self::XorImm8 => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -961,14 +961,14 @@ impl Instruction {
                 MicroOp::AluXor8,
                 MicroOp::Yield,
             ),
-            Instruction::OrReg8 { src } => enqueue!(
+            Self::OrReg8 { src } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(src),
                 MicroOp::AluOr8,
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::OrMem16 { src } => enqueue!(
+            Self::OrMem16 { src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(src),
@@ -977,7 +977,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::OrImm8 => enqueue!(
+            Self::OrImm8 => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -985,14 +985,14 @@ impl Instruction {
                 MicroOp::AluOr8,
                 MicroOp::Yield,
             ),
-            Instruction::CpReg8 { src } => enqueue!(
+            Self::CpReg8 { src } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(src),
                 MicroOp::AluCp8,
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::CpMem16 { src } => enqueue!(
+            Self::CpMem16 { src } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(src),
@@ -1001,7 +1001,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::CpImm8 => enqueue!(
+            Self::CpImm8 => enqueue!(
                 queue,
                 MicroOp::IncPC,
                 MicroOp::Yield,
@@ -1009,7 +1009,7 @@ impl Instruction {
                 MicroOp::AluCp8,
                 MicroOp::Yield,
             ),
-            Instruction::RlcReg8 { reg } => enqueue!(
+            Self::RlcReg8 { reg } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(reg),
                 MicroOp::AluRlc8,
@@ -1017,7 +1017,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::RlcMem16 { reg } => enqueue!(
+            Self::RlcMem16 { reg } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(reg),
@@ -1028,7 +1028,7 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::RrcReg8 { reg } => enqueue!(
+            Self::RrcReg8 { reg } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(reg),
                 MicroOp::AluRrc8,
@@ -1036,7 +1036,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::RrcMem16 { reg } => enqueue!(
+            Self::RrcMem16 { reg } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(reg),
@@ -1047,7 +1047,7 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::RlReg8 { reg } => enqueue!(
+            Self::RlReg8 { reg } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(reg),
                 MicroOp::AluRl8,
@@ -1055,7 +1055,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::RlMem16 { reg } => enqueue!(
+            Self::RlMem16 { reg } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(reg),
@@ -1066,7 +1066,7 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::RrReg8 { reg } => enqueue!(
+            Self::RrReg8 { reg } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(reg),
                 MicroOp::AluRr8,
@@ -1074,7 +1074,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::RrMem16 { reg } => enqueue!(
+            Self::RrMem16 { reg } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(reg),
@@ -1085,7 +1085,7 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::SlaReg8 { reg } => enqueue!(
+            Self::SlaReg8 { reg } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(reg),
                 MicroOp::AluSla8,
@@ -1093,7 +1093,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::SlaMem16 { reg } => enqueue!(
+            Self::SlaMem16 { reg } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(reg),
@@ -1104,7 +1104,7 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::SraReg8 { reg } => enqueue!(
+            Self::SraReg8 { reg } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(reg),
                 MicroOp::AluSra8,
@@ -1112,7 +1112,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::SraMem16 { reg } => enqueue!(
+            Self::SraMem16 { reg } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(reg),
@@ -1123,7 +1123,7 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::SwapReg8 { reg } => enqueue!(
+            Self::SwapReg8 { reg } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(reg),
                 MicroOp::AluSwap8,
@@ -1131,7 +1131,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::SwapMem16 { reg } => enqueue!(
+            Self::SwapMem16 { reg } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(reg),
@@ -1142,7 +1142,7 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::SrlReg8 { reg } => enqueue!(
+            Self::SrlReg8 { reg } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(reg),
                 MicroOp::AluSrl8,
@@ -1150,7 +1150,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::SrlMem16 { reg } => enqueue!(
+            Self::SrlMem16 { reg } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(reg),
@@ -1161,14 +1161,14 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::BitReg8 { reg, bit } => enqueue!(
+            Self::BitReg8 { reg, bit } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(reg),
                 MicroOp::AluBit { bit },
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::BitMem16 { reg, bit } => enqueue!(
+            Self::BitMem16 { reg, bit } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(reg),
@@ -1178,7 +1178,7 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::ResReg8 { reg, bit } => enqueue!(
+            Self::ResReg8 { reg, bit } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(reg),
                 MicroOp::AluRes { bit },
@@ -1186,7 +1186,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::ResMem16 { reg, bit } => enqueue!(
+            Self::ResMem16 { reg, bit } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(reg),
@@ -1197,7 +1197,7 @@ impl Instruction {
                 MicroOp::Yield,
             ),
 
-            Instruction::SetReg8 { reg, bit } => enqueue!(
+            Self::SetReg8 { reg, bit } => enqueue!(
                 queue,
                 MicroOp::ReadReg8(reg),
                 MicroOp::AluSet { bit },
@@ -1205,7 +1205,7 @@ impl Instruction {
                 MicroOp::IncPC,
                 MicroOp::Yield,
             ),
-            Instruction::SetMem16 { reg, bit } => enqueue!(
+            Self::SetMem16 { reg, bit } => enqueue!(
                 queue,
                 MicroOp::Yield,
                 MicroOp::ReadReg16(reg),
@@ -1218,17 +1218,8 @@ impl Instruction {
         }
     }
 
+    /// Encode an interrupt request to an `address` as a series of micro ops and pump into queue.
     pub fn encode_interrupt_request(queue: &mut VecDeque<MicroOp>, address: u16) {
-        macro_rules! enqueue {
-            ($queue:expr, $($op:expr),* $(,)?) => {
-                {
-                    $(
-                        ($queue).push_back($op);
-                    )*
-                }
-            };
-        }
-
         enqueue!(
             queue,
             // 1. Wait

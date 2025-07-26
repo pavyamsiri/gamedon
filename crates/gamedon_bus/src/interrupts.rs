@@ -1,22 +1,34 @@
 use crate::{BusReader, BusWriter, ReadByteError, WriteByteError};
 use gamedon_bits::{BitShift8, HwReg8};
 
+/// The bit representing `VBlank` interrupts.
 const INTERRUPT_VBLANK: BitShift8 = BitShift8::Bit0;
+/// The bit representing LCD interrupts.
 const INTERRUPT_LCD: BitShift8 = BitShift8::Bit1;
+/// The bit representing timer interrupts.
 const INTERRUPT_TIMER: BitShift8 = BitShift8::Bit2;
+/// The bit representing serial interrupts.
 const INTERRUPT_SERIAL: BitShift8 = BitShift8::Bit3;
+/// The bit representing joypad interrupts.
 const INTERRUPT_JOYPAD: BitShift8 = BitShift8::Bit4;
 
+/// Represents all types of interrupts.
 #[derive(Debug, Clone, Copy)]
 pub enum Interrupt {
+    /// Triggers when the PPU enters `VBlank`.
     VBlank,
+    /// Triggers are related to the `STAT` register at $FF41.
     Lcd,
+    /// Triggers when the timer overflows.
     Timer,
+    /// Triggers when the serial port finishes data transfer.
     Serial,
+    /// Triggers when a button is pressed.
     Joypad,
 }
 
 impl Interrupt {
+    /// Return the address of the interrupt handler associated with the interrupt.
     #[inline]
     pub const fn to_address(self) -> u16 {
         match self {
@@ -28,6 +40,7 @@ impl Interrupt {
         }
     }
 
+    /// Return the associated bit of the interrupt.
     const fn to_shift(self) -> BitShift8 {
         match self {
             Interrupt::VBlank => INTERRUPT_VBLANK,
@@ -39,14 +52,49 @@ impl Interrupt {
     }
 }
 
+/// The interrupt registers.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Interrupts {
-    /// 0xFF0F: Bit flags to signal interrupt requests.
+    /// $FF0F: Bit flags to signal interrupt requests.
     flag: HwReg8,
-    /// 0xFFFF: Bit flags to toggle which interrupts are enabled.
+    /// $FFFF: Bit flags to toggle which interrupts are enabled.
     enable: HwReg8,
 }
 
+impl Interrupts {
+    /// Whether there is a pending interrupt.
+    pub(crate) const fn is_pending(self) -> bool {
+        (self.enable.0 & self.flag.0) != 0
+    }
+
+    /// Return the pending interrupt if there are any.
+    pub(crate) const fn get_pending(self) -> Option<Interrupt> {
+        let pending = HwReg8(self.enable.0 & self.flag.0);
+        if pending.bit(INTERRUPT_VBLANK) {
+            Some(Interrupt::VBlank)
+        } else if pending.bit(INTERRUPT_LCD) {
+            Some(Interrupt::Lcd)
+        } else if pending.bit(INTERRUPT_TIMER) {
+            Some(Interrupt::Timer)
+        } else if pending.bit(INTERRUPT_SERIAL) {
+            Some(Interrupt::Serial)
+        } else if pending.bit(INTERRUPT_JOYPAD) {
+            Some(Interrupt::Joypad)
+        } else {
+            None
+        }
+    }
+
+    /// Set the interrupt flag bit for the given interrupt.
+    pub(crate) const fn set_request(&mut self, interrupt: Interrupt) {
+        self.flag.set(interrupt.to_shift());
+    }
+
+    /// Reset the interrupt flag bit for the given interrupt.
+    pub(crate) const fn reset_request(&mut self, interrupt: Interrupt) {
+        self.flag.reset(interrupt.to_shift());
+    }
+}
 impl BusReader for Interrupts {
     fn read_byte(&self, address: u16) -> Result<u8, ReadByteError> {
         match address {
@@ -77,36 +125,5 @@ impl BusWriter for Interrupts {
             }
         }
         Ok(())
-    }
-}
-
-impl Interrupts {
-    pub(crate) const fn is_pending(self) -> bool {
-        (self.enable.0 & self.flag.0) != 0
-    }
-
-    pub(crate) const fn get_pending(self) -> Option<Interrupt> {
-        let pending = HwReg8(self.enable.0 & self.flag.0);
-        if pending.bit(INTERRUPT_VBLANK) {
-            Some(Interrupt::VBlank)
-        } else if pending.bit(INTERRUPT_LCD) {
-            Some(Interrupt::Lcd)
-        } else if pending.bit(INTERRUPT_TIMER) {
-            Some(Interrupt::Timer)
-        } else if pending.bit(INTERRUPT_SERIAL) {
-            Some(Interrupt::Serial)
-        } else if pending.bit(INTERRUPT_JOYPAD) {
-            Some(Interrupt::Joypad)
-        } else {
-            None
-        }
-    }
-
-    pub(crate) const fn set_request(&mut self, interrupt: Interrupt) {
-        self.flag.set(interrupt.to_shift());
-    }
-
-    pub(crate) const fn reset_request(&mut self, interrupt: Interrupt) {
-        self.flag.reset(interrupt.to_shift());
     }
 }

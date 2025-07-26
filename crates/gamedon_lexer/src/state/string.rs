@@ -1,18 +1,23 @@
 use crate::{
-    GeneralError, GeneralKeyword, GeneralState, GeneralToken, LexerPutBack, LexerStateTransition,
-    SourceChar, Span, WithSpan,
+    GeneralError, GeneralState, GeneralToken, LexerPutBack, LexerStateTransition, SourceChar, Span,
+    WithSpan,
 };
 
+/// The string state.
 #[derive(Debug)]
 pub struct StringState {
+    /// The byte offset of the state.
     pub start: usize,
+    /// The character to close the string.
     pub closing: char,
+    /// Whether the closing character needs to be escaped.
     pub escaped: bool,
 }
 
 impl StringState {
+    /// Execute the state given the source text and a source character.
     #[inline]
-    pub fn execute<S: GeneralState, T: GeneralToken<K>, E: GeneralError, K: GeneralKeyword>(
+    pub fn execute<S: GeneralState, T: GeneralToken<K>, E: GeneralError, K>(
         &self,
         text: &str,
         next_char: Option<SourceChar>,

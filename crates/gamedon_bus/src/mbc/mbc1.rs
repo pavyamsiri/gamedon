@@ -1,8 +1,7 @@
-use super::{
-    MbcCreationError, MemoryBankController, RamLoadError, RamSize, RomLoadError, RomSize,
-    bank::{MemoryBank, NamedType},
+use super::{MbcCreationError, MemoryBankController, RamLoadError, RomLoadError};
+use crate::{
+    BusReader, BusWriter, MemoryBank, NameTag, RamSize, ReadByteError, RomSize, WriteByteError,
 };
-use crate::{BusReader, BusWriter, ReadByteError, WriteByteError};
 
 /// Name of the Device.
 const NAME: &str = "mbc1";
@@ -17,38 +16,49 @@ const SECOND_ROM_BANK_BASE: u16 = 0x4000;
 /// The base address for the RAM bank area.
 const RAM_BANK_BASE: u16 = 0xA000;
 
-type RomBank = MemoryBank<ROM_BANK_SIZE, Mbc1Name>;
-type RamBank = MemoryBank<RAM_BANK_SIZE, Mbc1Name>;
-
-struct Mbc1Name;
-
-impl NamedType for Mbc1Name {
+/// The tag for MBC1.
+struct Mbc1Tag;
+impl NameTag for Mbc1Tag {
     fn name() -> &'static str {
         NAME
     }
 }
 
+/// The ROM bank.
+type RomBank = MemoryBank<ROM_BANK_SIZE, Mbc1Tag>;
+/// The RAM bank.
+type RamBank = MemoryBank<RAM_BANK_SIZE, Mbc1Tag>;
+
+/// The number of bits needed to address the chosen ROM size.
 #[derive(Debug, Clone, Copy)]
 enum SizeMode {
+    /// Need one bit.
     One,
+    /// Need two bits.
     Two,
+    /// Need three bits.
     Three,
+    /// Need four bits.
     Four,
+    /// Need five bits.
     Five,
+    /// Need five bits and two other bits from the extra register.
     More,
 }
 
 impl SizeMode {
+    /// Whether the current size is large enough to need the extra register.
     const fn is_large(self) -> bool {
         matches!(self, Self::More)
     }
 }
 
+/// The MBC1 controller.
 #[derive(Debug, Clone)]
 pub(crate) struct Mbc1 {
-    /// Up to 128 banks.
+    /// Up to 128 ROM banks.
     rom_banks: Vec<RomBank>,
-    /// Up to 4 banks.
+    /// Up to 4 RAM banks.
     ram_banks: Vec<RamBank>,
     /// The size mode to determine how many bits to mask in the bank number register.
     size: SizeMode,
@@ -63,6 +73,7 @@ pub(crate) struct Mbc1 {
 }
 
 impl Mbc1 {
+    /// Create a new MBC1.
     pub(crate) fn new(rom_size: RomSize, ram_size: RamSize) -> Result<Self, MbcCreationError> {
         let size = match rom_size {
             RomSize::Rom32KiB => SizeMode::One,
@@ -86,8 +97,8 @@ impl Mbc1 {
             });
         }
 
-        let rom_banks = vec![RomBank::new(); rom_size.get_number_of_banks()];
-        let ram_banks = vec![RamBank::new(); ram_size.get_number_of_banks()];
+        let rom_banks = vec![RomBank::default(); rom_size.get_number_of_banks()];
+        let ram_banks = vec![RamBank::default(); ram_size.get_number_of_banks()];
         Ok(Self {
             rom_banks,
             ram_banks,
@@ -97,18 +108,24 @@ impl Mbc1 {
             is_simple_mode: true,
         })
     }
+
+    /// Get the lower bank select.
     const fn get_lower_bank(&self) -> u8 {
         self.bank_number & 0b0001_1111
     }
 
+    /// Get the upper bank select.
     const fn get_upper_bank(&self) -> u8 {
         self.bank_number & 0b0110_0000
     }
 
+    /// Get the ROM size in bytes.
     const fn get_rom_size(&self) -> usize {
         self.rom_banks.len() * RomBank::get_size_from_type()
     }
 
+    /// Get the RAM size in bytes.
+    #[allow(dead_code)]
     const fn get_ram_size(&self) -> usize {
         self.ram_banks.len() * RamBank::get_size_from_type()
     }
@@ -275,7 +292,5 @@ impl MemoryBankController for Mbc1 {
         data
     }
 
-    fn update(&mut self, num_m_cycles: usize) {
-        let _ = num_m_cycles;
-    }
+    fn tick(&mut self) {}
 }

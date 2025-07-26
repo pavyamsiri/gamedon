@@ -2,6 +2,7 @@ use crate::lexer::{Error, Keyword, State, Token};
 use gamedon_lexer::{Lexer, WithSpan, WrapWithSpan};
 use owo_colors::{OwoColorize, Stream, Style};
 
+/// Unwrap a result and return the error directly.
 macro_rules! early_return {
     ($result:expr) => {
         match $result {
@@ -13,6 +14,7 @@ macro_rules! early_return {
     };
 }
 
+/// Unwrap a result and return the error wrapped as an error variant of a result.
 macro_rules! early_return_as_err {
     ($result:expr) => {
         match $result {
@@ -24,6 +26,9 @@ macro_rules! early_return_as_err {
     };
 }
 
+/// Implement the method `eat_if_{num}` where `num` is a numeric type that can be parsed from string.
+/// The function is meant to peek the current lexed token and consume it if and only if the token can
+/// be parsed into the given numeric type.
 macro_rules! impl_eat_if_num {
     ($name:ident, $num_type:ident) => {
         fn $name(&mut self) -> Result<Option<WithSpan<$num_type>>, Command> {
@@ -55,38 +60,71 @@ macro_rules! impl_eat_if_num {
     };
 }
 
+/// All debugger commands.
 #[derive(Debug)]
 pub enum Command {
+    /// Step the CPU ahead one whole instruction.
     Step,
+    /// Resume CPU execution until it hits a breakpoint.
     Resume,
+    /// Print the stack pointer and the word pointed to by it.
     Stack,
+    /// Print the status of the emulator.
     Status,
+    /// Print the status of the emulator in a format compatible with `gameboy-doctor`.
     Doctor,
+    /// Reask the user without displaying anything.
     Reask,
+    /// Reask the user while displaying the inner string.
     Retry(String),
+    /// Add a breakpoint that triggers when the CPU is about to decode the instruction at `address`.
     RunInto(u16),
-    RunIntoWhen { address: u16, opcode: u16 },
+    /// Add a breakpoint that triggers when the CPU is about to execute the instruction at `address`
+    /// with opcode equal to `opcode`.
+    RunIntoWhen {
+        /// The breakpoint address.
+        address: u16,
+        /// The opcode of the instruction to break against.
+        opcode: u16,
+    },
+    /// Print the byte at `address`.
     Read(u16),
-    BreakWrite { address: u16, value: Option<u8> },
-    BreakRead { address: u16 },
+    /// Add a breakpoint that triggers when a byte is being written to `address`.
+    BreakWrite {
+        /// The breakpoint address.
+        address: u16,
+        /// If set the value to check against when the byte is being written to `address`. If the byte
+        /// is the same as `value` then the breakpoint is triggered.
+        value: Option<u8>,
+    },
+    /// Add a breakpoint that triggers when the byte at `address` is being read from the bus.
+    BreakRead {
+        /// The breakpoint address.
+        address: u16,
+    },
+    /// Exit the debug command prompt.
     Exit,
+    /// Print the last instruction executed by the CPU.
     LastOp,
 }
 
+/// A parser for the debug command language.
 pub struct Parser<'a> {
+    /// The lexer.
     lexer: Lexer<'a, State>,
 }
 
 impl<'a> Parser<'a> {
+    /// Initialise the parser given the `source` text.
     pub fn new(source: &'a str) -> Self {
         Self {
             lexer: Lexer::<State>::new(source),
         }
     }
 
+    /// Parse the source into a `Command`.
     pub fn parse(mut self) -> Command {
         let command = early_return!(self.next_token());
-
         let lexeme = self
             .lexer
             .get_lexeme(command.get_span())
@@ -114,6 +152,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parse the `runto` command assuming the previous token as the `runto` keyword.
     fn parse_runto(&mut self) -> Command {
         let address = early_return!(self.expect_u16());
         let opcode = early_return!(self.eat_if_u16()).map(WithSpan::take_kind);
@@ -127,11 +166,13 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parse the `read` command assuming the previous token as the `read` keyword.
     fn parse_read(&mut self) -> Command {
         let address = early_return!(self.expect_u16());
         Command::Read(address.take_kind())
     }
 
+    /// Parse the `break` command assuming the previous token as the `break` keyword.
     fn parse_break(&mut self) -> Command {
         let on_write = early_return!(self.parse_break_mode());
         let address = early_return!(self.expect_u16()).take_kind();
@@ -143,6 +184,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parse the mode of the bus read/write breakpoint where `true` means on write and `false` means on read.
     fn parse_break_mode(&mut self) -> Result<bool, Command> {
         match early_return_as_err!(self.expect_ident()).take_kind() {
             "r" => Ok(false),
@@ -154,6 +196,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Convert a lexer token or error into a token or a retry command.
     fn handle_token(
         &mut self,
         token_or_error: Result<WithSpan<Token>, WithSpan<Error>>,
@@ -204,11 +247,13 @@ impl<'a> Parser<'a> {
         Ok(command_token)
     }
 
+    /// Return the next lexed token or a retry command in the case of failure.
     fn next_token(&mut self) -> Result<WithSpan<Token>, Command> {
         let token_or_error = self.lexer.next_token();
         self.handle_token(token_or_error)
     }
 
+    /// Return the current lexed token or a retry command in the case of failure.
     fn peek_token(&mut self) -> Result<WithSpan<Token>, Command> {
         let token_or_error = self.lexer.peek_token();
         self.handle_token(token_or_error)
@@ -217,6 +262,7 @@ impl<'a> Parser<'a> {
     impl_eat_if_num!(eat_if_u8, u8);
     impl_eat_if_num!(eat_if_u16, u16);
 
+    /// Check that the next token can be converted into a `u16` otherwise return a retry command.
     fn expect_u16(&mut self) -> Result<WithSpan<u16>, Command> {
         let operand = early_return_as_err!(self.next_token());
         let lexeme = &self
@@ -243,6 +289,7 @@ impl<'a> Parser<'a> {
         Ok(number.wrap(operand.get_span().clone()))
     }
 
+    /// Check that the next token is an identifier otherwise return a retry command.
     fn expect_ident(&mut self) -> Result<WithSpan<&str>, Command> {
         let operand = early_return_as_err!(self.next_token());
         let span = operand.get_span().clone();

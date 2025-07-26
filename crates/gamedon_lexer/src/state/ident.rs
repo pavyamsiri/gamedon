@@ -3,22 +3,29 @@ use crate::{
     SourceChar, Span, WithSpan,
 };
 
+/// The identifier state.
 pub struct IdentState {
+    /// The byte offset of the state.
     pub start: usize,
 }
 
 impl IdentState {
+    /// Create either an identifier token or a keyword token given the source and ending byte offset.
     fn lex_ident<T: GeneralToken<K>, K: GeneralKeyword>(
         &self,
         text: &str,
         offset: usize,
     ) -> WithSpan<T> {
-        assert!(self.start < offset);
+        assert!(
+            self.start < offset,
+            "the ending byte offset can't be before the start of token."
+        );
+
         let span = Span {
             start: self.start,
             length: offset - self.start,
         };
-        // SAFETY: Span originates from text meaning it should be within range.
+
         let lexeme = &text[span.range()];
 
         if let Some(keyword) = K::parse(lexeme) {
@@ -28,6 +35,7 @@ impl IdentState {
         }
     }
 
+    /// Execute the state given the source text and a source character.
     #[inline]
     pub fn execute<S: GeneralState, T: GeneralToken<K>, E: GeneralError, K: GeneralKeyword>(
         &self,

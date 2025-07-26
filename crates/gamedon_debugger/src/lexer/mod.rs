@@ -3,27 +3,42 @@ use gamedon_lexer::{
     LexerStateTransition, SourceChar, Span, TokenWithEnd, WithSpan, WrapWithSpan,
     state::{IdentState, StringState},
 };
+use normal::NormalState;
 use number::{FirstHexDigitState, HexDigitState, ZeroState};
 use thiserror::Error;
-mod initial;
-use initial::InitialState;
+
+/// The normal lexer state.
+mod normal;
+/// States relating to lexing numbers.
 mod number;
 
+/// The keywords in the debugger command language.
 #[derive(Debug, Clone)]
-pub enum Keyword {
+pub(crate) enum Keyword {
+    /// The `doctor` keyword.
     Doctor,
+    /// The `runto` keyword.
     RunTo,
+    /// The `status` keyword.
     Status,
+    /// The `exit` keyword.
     Exit,
+    /// The `step` keyword.
     Step,
+    /// The `stack` keyword.
     Stack,
+    /// The `resume` keyword.
     Resume,
+    /// The `read` keyword.
     Read,
+    /// The `break` keyword.
     Break,
+    /// The `lastop` keyword.
     LastOp,
 }
 
 impl GeneralKeyword for Keyword {
+    /// Parse a string into a keyword.
     fn parse(lexeme: &str) -> Option<Self> {
         let kw = match lexeme {
             "runto" => Self::RunTo,
@@ -42,13 +57,20 @@ impl GeneralKeyword for Keyword {
     }
 }
 
+/// Types of tokens in the debugger command language.
 #[derive(Debug, Clone)]
-pub enum Token {
+pub(crate) enum Token {
+    /// An integer in base 10.
     Integer,
+    /// An integer in base 16 including the leading `0x`.
     Hexadecimal,
+    /// An identifier.
     Ident,
+    /// A string.
     String,
+    /// A keyword.
     Keyword(Keyword),
+    /// End of file.
     Eof,
 }
 
@@ -79,14 +101,19 @@ impl GeneralToken<Keyword> for Token {
     }
 }
 
+/// Errors that occur when lexing.
 #[derive(Debug, PartialEq, Eq, Error, Clone)]
-pub enum Error {
+pub(crate) enum Error {
+    /// The lexer has encountered an unknown character.
     #[error("Encountered unknown character {c}")]
     UnknownChar { c: char },
+    /// The lexer has encountered an unterminated string.
     #[error("String is unterminated: expected {delimiter} to close the string.")]
     UnterminatedString { delimiter: char },
+    /// The lexer has encountered an unknown leading prefix for numbers.
     #[error("Encountered unknown number prefix {prefix}")]
     UnknownNumberPrefix { prefix: char },
+    /// The lexer has encountered an incomplete hexadecimal.
     #[error("The hexadecimal number is incomplete.")]
     IncompleteHexadecimal,
 }
@@ -97,19 +124,27 @@ impl GeneralError for Error {
     }
 }
 
-pub enum State {
-    Initial(InitialState),
+/// The lexer state.
+pub(crate) enum State {
+    /// The normal state.
+    Normal(NormalState),
+    /// The identifer state.
     Ident(IdentState),
+    /// The string state.
     String(StringState),
+    /// The zero state entered when seeing `0` in the `Normal` state.
     Zero(ZeroState),
+    /// The state entered when seeing `x` in the `Zero` state.
     FirstHexDigit(FirstHexDigitState),
+    /// The state entered when seeing any hex digit in the `FirstHexDigit` state.
     HexDigit(HexDigitState),
+    /// The lexer has finished.
     Finished,
 }
 
 impl GeneralState for State {
     fn initial(start: usize) -> Self {
-        Self::Initial(InitialState { start })
+        Self::Normal(NormalState { start })
     }
 
     fn string(start: usize, closing: char, should_escape: bool) -> Self {
@@ -128,7 +163,6 @@ impl GeneralState for State {
 impl LexerState for State {
     type Token = WithSpan<Token>;
     type Error = WithSpan<Error>;
-    type Keyword = Keyword;
 
     fn initial() -> Self {
         <Self as GeneralState>::initial(0)
@@ -151,7 +185,7 @@ impl LexerState for State {
                 }))),
                 put_back: LexerPutBack::None,
             },
-            State::Initial(state) => state.execute(text, next_char),
+            State::Normal(state) => state.execute(text, next_char),
             State::Ident(state) => state.execute(text, next_char),
             State::String(state) => state.execute(text, next_char),
             State::Zero(state) => state.execute(text, next_char),

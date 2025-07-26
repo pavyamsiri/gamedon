@@ -1,130 +1,114 @@
 use crate::register::{Reg8, Reg16};
-use core::fmt::Write;
+use core::fmt;
 use gamedon_bits::BitShift8;
-use owo_colors::colors::*;
 use owo_colors::{OwoColorize, Stream, Style};
-mod accurate;
-pub use accurate::MicroOp;
 
+pub use disassembler::disassemble;
+pub use microop::MicroOp;
+
+/// Disassembler.
+mod disassembler;
+/// The microop representation of all opcodes.
+mod microop;
+
+/// Style to use when pretty printing an instruction.
 const INSTRUCTION_STYLE: Style = Style::new().yellow();
+/// Style to use when pretty printing an error.
 const ERROR_STYLE: Style = Style::new().red();
+/// Style to use when pretty printing an immediate.
 const IMMEDIATE_STYLE: Style = Style::new().magenta();
+/// Style to use when pretty printing an address.
 const ADDRESS_STYLE: Style = Style::new().bright_magenta();
+/// Style to use when pretty printing a condition.
 const CONDITION_STYLE: Style = Style::new().green();
 
+macro_rules! apply_colour {
+    ($token:expr, $style:expr) => {
+        $token.if_supports_color(Stream::Stdout, |text| text.style($style))
+    };
+}
+
+/// A branch condition.
 #[derive(Debug, Clone, Copy)]
 pub enum Condition {
+    /// Branch if zero flag is set.
     Z,
+    /// Branch if zero flag is not set.
     NZ,
+    /// Branch if carry flag is set.
     C,
+    /// Branch if carry flag is not set.
     NC,
 }
 
-impl core::fmt::Display for Condition {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Condition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Condition::Z => write!(
-                f,
-                "{}",
-                "z".if_supports_color(Stream::Stdout, |text| text.style(CONDITION_STYLE))
-            ),
-            Condition::NZ => write!(
-                f,
-                "{}",
-                "nz".if_supports_color(Stream::Stdout, |text| text.style(CONDITION_STYLE))
-            ),
-            Condition::C => write!(
-                f,
-                "{}",
-                "c".if_supports_color(Stream::Stdout, |text| text.style(CONDITION_STYLE))
-            ),
-            Condition::NC => write!(
-                f,
-                "{}",
-                "nc".if_supports_color(Stream::Stdout, |text| text.style(CONDITION_STYLE))
-            ),
+            Self::Z => write!(f, "{}", apply_colour!("z", CONDITION_STYLE),),
+            Self::NZ => write!(f, "{}", apply_colour!("nz", CONDITION_STYLE),),
+            Self::C => write!(f, "{}", apply_colour!("c", CONDITION_STYLE),),
+            Self::NC => write!(f, "{}", apply_colour!("nc", CONDITION_STYLE),),
         }
     }
 }
 
+/// All reset vector addresses.
 #[derive(Debug, Clone, Copy)]
 pub enum RstAddress {
+    /// Address to $0000.
     RST00,
+    /// Address to $0008.
     RST08,
+    /// Address to $0010.
     RST10,
+    /// Address to $0018.
     RST18,
+    /// Address to $0020.
     RST20,
+    /// Address to $0028.
     RST28,
+    /// Address to $0030.
     RST30,
+    /// Address to $0038.
     RST38,
 }
 
 impl RstAddress {
+    /// Return the address as `u16`.
     #[inline]
     pub const fn to_address(self) -> u16 {
         match self {
-            RstAddress::RST00 => 0x0000,
-            RstAddress::RST08 => 0x0008,
-            RstAddress::RST10 => 0x0010,
-            RstAddress::RST18 => 0x0018,
-            RstAddress::RST20 => 0x0020,
-            RstAddress::RST28 => 0x0028,
-            RstAddress::RST30 => 0x0030,
-            RstAddress::RST38 => 0x0038,
+            Self::RST00 => 0x0000,
+            Self::RST08 => 0x0008,
+            Self::RST10 => 0x0010,
+            Self::RST18 => 0x0018,
+            Self::RST20 => 0x0020,
+            Self::RST28 => 0x0028,
+            Self::RST30 => 0x0030,
+            Self::RST38 => 0x0038,
         }
     }
 }
 
-impl core::fmt::Display for RstAddress {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for RstAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RstAddress::RST00 => write!(
-                f,
-                "{}",
-                "$0000".if_supports_color(Stream::Stdout, |text| text.style(ADDRESS_STYLE))
-            ),
-            RstAddress::RST08 => write!(
-                f,
-                "{}",
-                "$0008".if_supports_color(Stream::Stdout, |text| text.style(ADDRESS_STYLE))
-            ),
-            RstAddress::RST10 => write!(
-                f,
-                "{}",
-                "$0010".if_supports_color(Stream::Stdout, |text| text.style(ADDRESS_STYLE))
-            ),
-            RstAddress::RST18 => write!(
-                f,
-                "{}",
-                "$0018".if_supports_color(Stream::Stdout, |text| text.style(ADDRESS_STYLE))
-            ),
-            RstAddress::RST20 => write!(
-                f,
-                "{}",
-                "$0020".if_supports_color(Stream::Stdout, |text| text.style(ADDRESS_STYLE))
-            ),
-            RstAddress::RST28 => write!(
-                f,
-                "{}",
-                "$0028".if_supports_color(Stream::Stdout, |text| text.style(ADDRESS_STYLE))
-            ),
-            RstAddress::RST30 => write!(
-                f,
-                "{}",
-                "$0030".if_supports_color(Stream::Stdout, |text| text.style(ADDRESS_STYLE))
-            ),
-            RstAddress::RST38 => write!(
-                f,
-                "{}",
-                "$0038".if_supports_color(Stream::Stdout, |text| text.style(ADDRESS_STYLE))
-            ),
+            Self::RST00 => write!(f, "{}", apply_colour!("$0000", ADDRESS_STYLE)),
+            Self::RST08 => write!(f, "{}", apply_colour!("$0008", ADDRESS_STYLE)),
+            Self::RST10 => write!(f, "{}", apply_colour!("$0010", ADDRESS_STYLE)),
+            Self::RST18 => write!(f, "{}", apply_colour!("$0018", ADDRESS_STYLE)),
+            Self::RST20 => write!(f, "{}", apply_colour!("$0020", ADDRESS_STYLE)),
+            Self::RST28 => write!(f, "{}", apply_colour!("$0028", ADDRESS_STYLE)),
+            Self::RST30 => write!(f, "{}", apply_colour!("$0030", ADDRESS_STYLE)),
+            Self::RST38 => write!(f, "{}", apply_colour!("$0038", ADDRESS_STYLE)),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum Instruction {
     /// No operation.
+    #[default]
     Nop,
     /// Halt the system clock and wait for interrupts.
     Halt,
@@ -404,28 +388,17 @@ pub enum Instruction {
     SetMem16 { reg: Reg16, bit: BitShift8 },
 }
 
-impl core::default::Default for Instruction {
-    fn default() -> Self {
-        Self::Nop
-    }
-}
-
-impl core::fmt::Display for Instruction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         macro_rules! write_reg_op {
             ($name:literal, $reg:expr) => {
-                write!(
-                    f,
-                    "{} {}",
-                    $name.if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE),),
-                    $reg
-                )
+                write!(f, "{} {}", apply_colour!($name, INSTRUCTION_STYLE), $reg)
             };
             ($name:literal, $reg:expr, $bit:expr) => {
                 write!(
                     f,
                     "{} {} {}",
-                    $name.if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE),),
+                    apply_colour!($name, INSTRUCTION_STYLE),
                     $bit,
                     $reg
                 )
@@ -434,831 +407,282 @@ impl core::fmt::Display for Instruction {
 
         let acc = Reg8::A;
         match self {
-            Instruction::Nop => write!(
-                f,
-                "{}",
-                "nop".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Ret => write!(
-                f,
-                "{}",
-                "ret".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Reti => write!(
-                f,
-                "{}",
-                "reti".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Halt => write!(
-                f,
-                "{}",
-                "halt".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Stop => write!(
-                f,
-                "{}",
-                "stop".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Ei => write!(
-                f,
-                "{}",
-                "ei".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Di => write!(
-                f,
-                "{}",
-                "di".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Daa => write!(
-                f,
-                "{}",
-                "daa".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Scf => write!(
-                f,
-                "{}",
-                "scf".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Ccf => write!(
-                f,
-                "{}",
-                "ccf".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Cpl => write!(
-                f,
-                "{}",
-                "cpl".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Rlca => write!(
-                f,
-                "{}",
-                "rlca".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Rla => write!(
-                f,
-                "{}",
-                "rla".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Rrca => write!(
-                f,
-                "{}",
-                "rrca".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Rra => write!(
-                f,
-                "{}",
-                "rra".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Invalid => write!(
-                f,
-                "{}",
-                "invalid".if_supports_color(Stream::Stdout, |text| text.style(ERROR_STYLE))
-            ),
-            Instruction::Prefix => write!(
-                f,
-                "{}",
-                "prefix".if_supports_color(Stream::Stdout, |text| text.style(ERROR_STYLE))
-            ),
-            Instruction::LdReg8Reg8 { dst, src } => write!(
-                f,
-                "{} {dst}, {src}",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::LdReg8Mem16 { dst, src } => write!(
+            Self::Nop => write!(f, "{}", apply_colour!("nop", INSTRUCTION_STYLE)),
+            Self::Ret => write!(f, "{}", apply_colour!("ret", INSTRUCTION_STYLE)),
+            Self::Reti => write!(f, "{}", apply_colour!("reti", INSTRUCTION_STYLE)),
+            Self::Halt => write!(f, "{}", apply_colour!("halt", INSTRUCTION_STYLE)),
+            Self::Stop => write!(f, "{}", apply_colour!("stop", INSTRUCTION_STYLE)),
+            Self::Ei => write!(f, "{}", apply_colour!("ei", INSTRUCTION_STYLE)),
+            Self::Di => write!(f, "{}", apply_colour!("di", INSTRUCTION_STYLE)),
+            Self::Daa => write!(f, "{}", apply_colour!("daa", INSTRUCTION_STYLE)),
+            Self::Scf => write!(f, "{}", apply_colour!("scf", INSTRUCTION_STYLE)),
+            Self::Ccf => write!(f, "{}", apply_colour!("ccf", INSTRUCTION_STYLE)),
+            Self::Cpl => write!(f, "{}", apply_colour!("cpl", INSTRUCTION_STYLE)),
+            Self::Rlca => write!(f, "{}", apply_colour!("rlca", INSTRUCTION_STYLE)),
+            Self::Rla => write!(f, "{}", apply_colour!("rla", INSTRUCTION_STYLE)),
+            Self::Rrca => write!(f, "{}", apply_colour!("rrca", INSTRUCTION_STYLE)),
+            Self::Rra => write!(f, "{}", apply_colour!("rra", INSTRUCTION_STYLE)),
+            Self::Invalid => write!(f, "{}", apply_colour!("invalid", ERROR_STYLE)),
+            Self::Prefix => write!(f, "{}", apply_colour!("prefix", ERROR_STYLE)),
+            Self::LdReg8Reg8 { dst, src } => {
+                write!(f, "{} {dst}, {src}", apply_colour!("ld", INSTRUCTION_STYLE))
+            }
+            Self::LdReg8Mem16 { dst, src } => write!(
                 f,
                 "{} {dst}, ({src})",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ld", INSTRUCTION_STYLE)
             ),
-            Instruction::LdReg8Imm8 { dst } => write!(
-                f,
-                "{} {dst}, imm8",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::LdMem16Reg8 { dst, src } => write!(
+            Self::LdReg8Imm8 { dst } => {
+                write!(f, "{} {dst}, imm8", apply_colour!("ld", INSTRUCTION_STYLE))
+            }
+            Self::LdMem16Reg8 { dst, src } => write!(
                 f,
                 "{} ({dst}), {src}",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ld", INSTRUCTION_STYLE)
             ),
-            Instruction::LdMem16Imm8 { dst } => write!(
+            Self::LdMem16Imm8 { dst } => write!(
                 f,
                 "{} ({dst}), imm8",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ld", INSTRUCTION_STYLE)
             ),
-            Instruction::LdAdr8Reg8 { src } => write!(
+            Self::LdAdr8Reg8 { src } => write!(
                 f,
                 "{} (imm8), {src}",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ld", INSTRUCTION_STYLE)
             ),
-            Instruction::LdReg8Adr8 { dst } => write!(
+            Self::LdReg8Adr8 { dst } => write!(
                 f,
                 "{} {dst}, (imm8)",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ld", INSTRUCTION_STYLE)
             ),
-            Instruction::LdMem8Reg8 { dst, src } => write!(
+            Self::LdMem8Reg8 { dst, src } => write!(
                 f,
                 "{} ({dst}), {src}",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ld", INSTRUCTION_STYLE)
             ),
-            Instruction::LdReg8Mem8 { dst, src } => write!(
+            Self::LdReg8Mem8 { dst, src } => write!(
                 f,
                 "{} {dst}, ({src})",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ld", INSTRUCTION_STYLE)
             ),
-            Instruction::LdAdr16Reg8 { src } => write!(
+            Self::LdAdr16Reg8 { src } => write!(
                 f,
                 "{} (imm16), {src}",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ld", INSTRUCTION_STYLE)
             ),
-            Instruction::LdReg8Adr16 { dst } => write!(
+            Self::LdReg8Adr16 { dst } => write!(
                 f,
                 "{} {dst}, (imm16)",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ld", INSTRUCTION_STYLE)
             ),
-            Instruction::LdIncMem16Reg8 { dst, src } => write!(
+            Self::LdIncMem16Reg8 { dst, src } => write!(
                 f,
                 "{} ({dst}) {src}",
-                "ldi".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ldi", INSTRUCTION_STYLE)
             ),
-            Instruction::LdDecMem16Reg8 { dst, src } => write!(
+            Self::LdDecMem16Reg8 { dst, src } => write!(
                 f,
                 "{} ({dst}) {src}",
-                "ldd".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ldd", INSTRUCTION_STYLE)
             ),
-            Instruction::LdIncReg8Mem16 { dst, src } => write!(
+            Self::LdIncReg8Mem16 { dst, src } => write!(
                 f,
                 "{} {dst} ({src})",
-                "ldi".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ldi", INSTRUCTION_STYLE)
             ),
-            Instruction::LdDecReg8Mem16 { dst, src } => write!(
+            Self::LdDecReg8Mem16 { dst, src } => write!(
                 f,
                 "{} {dst} ({src})",
-                "ldd".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ldd", INSTRUCTION_STYLE)
             ),
-            Instruction::LdReg16Imm16 { dst } => write!(
-                f,
-                "{} {dst}, imm16",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::LdAdr16Reg16 { src } => write!(
+            Self::LdReg16Imm16 { dst } => {
+                write!(f, "{} {dst}, imm16", apply_colour!("ld", INSTRUCTION_STYLE))
+            }
+            Self::LdAdr16Reg16 { src } => write!(
                 f,
                 "{} (imm16), {src}",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("ld", INSTRUCTION_STYLE)
             ),
-            Instruction::LdReg16Reg16 { dst, src } => write!(
-                f,
-                "{} {dst}, {src}",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::LdReg16Off8 { dst } => write!(
-                f,
-                "{} {dst}, s8",
-                "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::IncReg8 { reg } => write!(
-                f,
-                "{} {reg}",
-                "inc".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::DecReg8 { reg } => write!(
-                f,
-                "{} {reg}",
-                "dec".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::IncMem16 { reg } => write!(
-                f,
-                "{} ({reg})",
-                "inc".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::DecMem16 { reg } => write!(
-                f,
-                "{} ({reg})",
-                "dec".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::IncReg16 { reg } => write!(
-                f,
-                "{} {reg}",
-                "inc".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::DecReg16 { reg } => write!(
-                f,
-                "{} {reg}",
-                "dec".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::AddReg16Reg16 { dst, src } => write!(
-                f,
-                "{} {dst} {src}",
-                "add".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::AddReg16Off8 { dst } => write!(
-                f,
-                "{} {dst} e8",
-                "add".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::PushReg16 { src } => write!(
-                f,
-                "{} {src}",
-                "push".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::PopReg16 { dst } => write!(
-                f,
-                "{} {dst}",
-                "pop".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Jr => write!(
-                f,
-                "{} imm16",
-                "jr".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Jrc { condition } => write!(
+            Self::LdReg16Reg16 { dst, src } => {
+                write!(f, "{} {dst}, {src}", apply_colour!("ld", INSTRUCTION_STYLE))
+            }
+            Self::LdReg16Off8 { dst } => {
+                write!(f, "{} {dst}, s8", apply_colour!("ld", INSTRUCTION_STYLE))
+            }
+            Self::IncReg8 { reg } => {
+                write!(f, "{} {reg}", apply_colour!("inc", INSTRUCTION_STYLE))
+            }
+            Self::DecReg8 { reg } => {
+                write!(f, "{} {reg}", apply_colour!("dec", INSTRUCTION_STYLE))
+            }
+            Self::IncMem16 { reg } => {
+                write!(f, "{} ({reg})", apply_colour!("inc", INSTRUCTION_STYLE))
+            }
+            Self::DecMem16 { reg } => {
+                write!(f, "{} ({reg})", apply_colour!("dec", INSTRUCTION_STYLE))
+            }
+            Self::IncReg16 { reg } => {
+                write!(f, "{} {reg}", apply_colour!("inc", INSTRUCTION_STYLE))
+            }
+            Self::DecReg16 { reg } => {
+                write!(f, "{} {reg}", apply_colour!("dec", INSTRUCTION_STYLE))
+            }
+            Self::AddReg16Reg16 { dst, src } => {
+                write!(f, "{} {dst} {src}", apply_colour!("add", INSTRUCTION_STYLE))
+            }
+            Self::AddReg16Off8 { dst } => {
+                write!(f, "{} {dst} e8", apply_colour!("add", INSTRUCTION_STYLE))
+            }
+            Self::PushReg16 { src } => {
+                write!(f, "{} {src}", apply_colour!("push", INSTRUCTION_STYLE))
+            }
+            Self::PopReg16 { dst } => {
+                write!(f, "{} {dst}", apply_colour!("pop", INSTRUCTION_STYLE))
+            }
+            Self::Jr => write!(f, "{} imm16", apply_colour!("jr", INSTRUCTION_STYLE)),
+            Self::Jrc { condition } => write!(
                 f,
                 "{} {condition} imm16",
-                "jr".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("jr", INSTRUCTION_STYLE)
             ),
-            Instruction::Jp => write!(
-                f,
-                "{} imm16",
-                "jp".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Jpc { condition } => write!(
+            Self::Jp => write!(f, "{} imm16", apply_colour!("jp", INSTRUCTION_STYLE)),
+            Self::Jpc { condition } => write!(
                 f,
                 "{} {condition} imm16",
-                "jp".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("jp", INSTRUCTION_STYLE)
             ),
-            Instruction::JpReg16 { reg } => write!(
-                f,
-                "{} {reg}",
-                "jp".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Retc { condition } => write!(
-                f,
-                "{} {condition}",
-                "ret".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Call => write!(
-                f,
-                "{} imm16",
-                "call".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::Callc { condition } => write!(
+            Self::JpReg16 { reg } => {
+                write!(f, "{} {reg}", apply_colour!("jp", INSTRUCTION_STYLE))
+            }
+            Self::Retc { condition } => {
+                write!(f, "{} {condition}", apply_colour!("ret", INSTRUCTION_STYLE))
+            }
+            Self::Call => write!(f, "{} imm16", apply_colour!("call", INSTRUCTION_STYLE)),
+            Self::Callc { condition } => write!(
                 f,
                 "{} {condition} imm16",
-                "call".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("call", INSTRUCTION_STYLE)
             ),
-            Instruction::Rst { target } => write!(
-                f,
-                "{} {target}",
-                "rst".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::AddReg8 { src } => write!(
+            Self::Rst { target } => {
+                write!(f, "{} {target}", apply_colour!("rst", INSTRUCTION_STYLE))
+            }
+            Self::AddReg8 { src } => write!(
                 f,
                 "{} {acc}, {src}",
-                "add".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("add", INSTRUCTION_STYLE)
             ),
-            Instruction::AddMem16 { src } => write!(
+            Self::AddMem16 { src } => write!(
                 f,
                 "{} {acc}, ({src})",
-                "add".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("add", INSTRUCTION_STYLE)
             ),
-            Instruction::AddImm8 => write!(
-                f,
-                "{} {acc}, imm8",
-                "add".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::AdcReg8 { src } => write!(
+            Self::AddImm8 => {
+                write!(f, "{} {acc}, imm8", apply_colour!("add", INSTRUCTION_STYLE))
+            }
+            Self::AdcReg8 { src } => write!(
                 f,
                 "{} {acc}, {src}",
-                "adc".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("adc", INSTRUCTION_STYLE)
             ),
-            Instruction::AdcMem16 { src } => write!(
+            Self::AdcMem16 { src } => write!(
                 f,
                 "{} {acc}, ({src})",
-                "adc".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("adc", INSTRUCTION_STYLE)
             ),
-            Instruction::AdcImm8 => write!(
-                f,
-                "{} {acc}, imm8",
-                "adc".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::SubReg8 { src } => write!(
+            Self::AdcImm8 => {
+                write!(f, "{} {acc}, imm8", apply_colour!("adc", INSTRUCTION_STYLE))
+            }
+            Self::SubReg8 { src } => write!(
                 f,
                 "{} {acc}, {src}",
-                "sub".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("sub", INSTRUCTION_STYLE)
             ),
-            Instruction::SubMem16 { src } => write!(
+            Self::SubMem16 { src } => write!(
                 f,
                 "{} {acc}, ({src})",
-                "sub".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("sub", INSTRUCTION_STYLE)
             ),
-            Instruction::SubImm8 => write!(
-                f,
-                "{} {acc}, imm8",
-                "sub".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::SbcReg8 { src } => write!(
-                f,
-                "{} {src}",
-                "sbc".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::SbcMem16 { src } => write!(
-                f,
-                "{} ({src})",
-                "sbc".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::SbcImm8 => write!(
-                f,
-                "{} imm8",
-                "sbc".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::AndReg8 { src } => write!(
+            Self::SubImm8 => {
+                write!(f, "{} {acc}, imm8", apply_colour!("sub", INSTRUCTION_STYLE))
+            }
+            Self::SbcReg8 { src } => {
+                write!(f, "{} {src}", apply_colour!("sbc", INSTRUCTION_STYLE))
+            }
+            Self::SbcMem16 { src } => {
+                write!(f, "{} ({src})", apply_colour!("sbc", INSTRUCTION_STYLE))
+            }
+            Self::SbcImm8 => write!(f, "{} imm8", apply_colour!("sbc", INSTRUCTION_STYLE)),
+            Self::AndReg8 { src } => write!(
                 f,
                 "{} {acc}, {src}",
-                "and".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("and", INSTRUCTION_STYLE)
             ),
-            Instruction::AndMem16 { src } => write!(
+            Self::AndMem16 { src } => write!(
                 f,
                 "{} {acc}, ({src})",
-                "and".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("and", INSTRUCTION_STYLE)
             ),
-            Instruction::AndImm8 => write!(
-                f,
-                "{} {acc}, imm8",
-                "and".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::XorReg8 { src } => write!(
+            Self::AndImm8 => {
+                write!(f, "{} {acc}, imm8", apply_colour!("and", INSTRUCTION_STYLE))
+            }
+            Self::XorReg8 { src } => write!(
                 f,
                 "{} {acc}, {src}",
-                "xor".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("xor", INSTRUCTION_STYLE)
             ),
-            Instruction::XorMem16 { src } => write!(
+            Self::XorMem16 { src } => write!(
                 f,
                 "{} {acc}, ({src})",
-                "xor".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("xor", INSTRUCTION_STYLE)
             ),
-            Instruction::XorImm8 => write!(
-                f,
-                "{} {acc}, imm8",
-                "xor".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::OrReg8 { src } => write!(
-                f,
-                "{} {acc}, {src}",
-                "or".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::OrMem16 { src } => write!(
+            Self::XorImm8 => {
+                write!(f, "{} {acc}, imm8", apply_colour!("xor", INSTRUCTION_STYLE))
+            }
+            Self::OrReg8 { src } => {
+                write!(f, "{} {acc}, {src}", apply_colour!("or", INSTRUCTION_STYLE))
+            }
+            Self::OrMem16 { src } => write!(
                 f,
                 "{} {acc}, ({src})",
-                "or".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("or", INSTRUCTION_STYLE)
             ),
-            Instruction::OrImm8 => write!(
-                f,
-                "{} {acc}, imm8",
-                "or".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::CpReg8 { src } => write!(
-                f,
-                "{} {acc}, {src}",
-                "cp".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::CpMem16 { src } => write!(
+            Self::OrImm8 => {
+                write!(f, "{} {acc}, imm8", apply_colour!("or", INSTRUCTION_STYLE))
+            }
+            Self::CpReg8 { src } => {
+                write!(f, "{} {acc}, {src}", apply_colour!("cp", INSTRUCTION_STYLE))
+            }
+            Self::CpMem16 { src } => write!(
                 f,
                 "{} {acc}, ({src})",
-                "cp".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
+                apply_colour!("cp", INSTRUCTION_STYLE)
             ),
-            Instruction::CpImm8 => write!(
-                f,
-                "{} {acc}, imm8",
-                "cp".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-            ),
-            Instruction::RlcReg8 { reg } => write_reg_op!("rlc", reg),
-            Instruction::RlcMem16 { reg } => write_reg_op!("rlc", reg),
-            Instruction::RrcReg8 { reg } => write_reg_op!("rrc", reg),
-            Instruction::RrcMem16 { reg } => write_reg_op!("rrc", reg),
-            Instruction::RlReg8 { reg } => write_reg_op!("rl", reg),
-            Instruction::RlMem16 { reg } => write_reg_op!("rl", reg),
-            Instruction::RrReg8 { reg } => write_reg_op!("rr", reg),
-            Instruction::RrMem16 { reg } => write_reg_op!("rr", reg),
-            Instruction::SlaReg8 { reg } => write_reg_op!("sla", reg),
-            Instruction::SlaMem16 { reg } => write_reg_op!("sla", reg),
-            Instruction::SraReg8 { reg } => write_reg_op!("sra", reg),
-            Instruction::SraMem16 { reg } => write_reg_op!("sra", reg),
-            Instruction::SwapReg8 { reg } => write_reg_op!("swap", reg),
-            Instruction::SwapMem16 { reg } => write_reg_op!("swap", reg),
-            Instruction::SrlReg8 { reg } => write_reg_op!("srl", reg),
-            Instruction::SrlMem16 { reg } => write_reg_op!("srl", reg),
-            Instruction::BitReg8 { reg, bit } => write_reg_op!("bit", reg, bit),
-            Instruction::BitMem16 { reg, bit } => write_reg_op!("bit", reg, bit),
-            Instruction::ResReg8 { reg, bit } => write_reg_op!("res", reg, bit),
-            Instruction::ResMem16 { reg, bit } => write_reg_op!("res", reg, bit),
-            Instruction::SetReg8 { reg, bit } => write_reg_op!("set", reg, bit),
-            Instruction::SetMem16 { reg, bit } => write_reg_op!("set", reg, bit),
+            Self::CpImm8 => {
+                write!(f, "{} {acc}, imm8", apply_colour!("cp", INSTRUCTION_STYLE))
+            }
+            Self::RlcReg8 { reg } => write_reg_op!("rlc", reg),
+            Self::RlcMem16 { reg } => write_reg_op!("rlc", reg),
+            Self::RrcReg8 { reg } => write_reg_op!("rrc", reg),
+            Self::RrcMem16 { reg } => write_reg_op!("rrc", reg),
+            Self::RlReg8 { reg } => write_reg_op!("rl", reg),
+            Self::RlMem16 { reg } => write_reg_op!("rl", reg),
+            Self::RrReg8 { reg } => write_reg_op!("rr", reg),
+            Self::RrMem16 { reg } => write_reg_op!("rr", reg),
+            Self::SlaReg8 { reg } => write_reg_op!("sla", reg),
+            Self::SlaMem16 { reg } => write_reg_op!("sla", reg),
+            Self::SraReg8 { reg } => write_reg_op!("sra", reg),
+            Self::SraMem16 { reg } => write_reg_op!("sra", reg),
+            Self::SwapReg8 { reg } => write_reg_op!("swap", reg),
+            Self::SwapMem16 { reg } => write_reg_op!("swap", reg),
+            Self::SrlReg8 { reg } => write_reg_op!("srl", reg),
+            Self::SrlMem16 { reg } => write_reg_op!("srl", reg),
+            Self::BitReg8 { reg, bit } => write_reg_op!("bit", reg, bit),
+            Self::BitMem16 { reg, bit } => write_reg_op!("bit", reg, bit),
+            Self::ResReg8 { reg, bit } => write_reg_op!("res", reg, bit),
+            Self::ResMem16 { reg, bit } => write_reg_op!("res", reg, bit),
+            Self::SetReg8 { reg, bit } => write_reg_op!("set", reg, bit),
+            Self::SetMem16 { reg, bit } => write_reg_op!("set", reg, bit),
         }
-    }
-}
-
-impl Instruction {
-    pub fn format(
-        &self,
-        buffer: &mut String,
-        stream: &mut impl Iterator<Item = (usize, u8)>,
-        byte: u8,
-    ) -> Result<(), core::fmt::Error> {
-        let acc = Reg8::A;
-        let mut bytes = vec![byte];
-        let mut write_byte = |byte: Option<u8>| {
-            if let Some(b) = byte {
-                bytes.push(b);
-                Some(b)
-            } else {
-                None
-            }
-        };
-
-        macro_rules! next_u8 {
-            () => {
-                write_byte(stream.next().map(|(_, byte)| byte))
-            };
-        }
-
-        macro_rules! next_u8_and_address {
-            () => {
-                stream
-                    .next()
-                    .map(|(address, byte)| (address, write_byte(Some(byte)).unwrap()))
-            };
-        }
-
-        match self {
-            Instruction::LdReg8Imm8 { dst } => {
-                let value = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {dst}, ",
-                    "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u8(buffer, value)?;
-            }
-            Instruction::LdMem16Imm8 { dst } => {
-                let value = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} ({dst}), ",
-                    "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u8(buffer, value)?;
-            }
-            Instruction::LdAdr8Reg8 { src } => {
-                let addr = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} (",
-                    "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u8(buffer, addr)?;
-                write!(buffer, "), {src}")?;
-            }
-            Instruction::LdReg8Adr8 { dst } => {
-                let addr = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {dst}, (",
-                    "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u8(buffer, addr)?;
-                write!(buffer, ")")?;
-            }
-            Instruction::LdAdr16Reg8 { src } => {
-                let lo = next_u8!();
-                let hi = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} ",
-                    "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u16_address(buffer, lo, hi)?;
-                write!(buffer, ", {src}")?;
-            }
-            Instruction::LdReg8Adr16 { dst } => {
-                let lo = next_u8!();
-                let hi = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {dst}, (",
-                    "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u16_address(buffer, lo, hi)?;
-                write!(buffer, ")")?;
-            }
-            Instruction::LdReg16Imm16 { dst } => {
-                let lo = next_u8!();
-                let hi = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {dst}, ",
-                    "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u16(buffer, lo, hi)?;
-            }
-            Instruction::LdAdr16Reg16 { src } => {
-                let lo = next_u8!();
-                let hi = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} (",
-                    "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u16_address(buffer, lo, hi)?;
-                write!(buffer, "), {src}")?;
-            }
-            Instruction::LdReg16Off8 { dst } => {
-                let offset = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {dst}, ",
-                    "ld".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_i8(buffer, offset)?;
-            }
-            Instruction::AddReg16Off8 { dst } => {
-                let offset = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {dst}, ",
-                    "add".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_i8(buffer, offset)?;
-            }
-            Instruction::Jr => {
-                let offset = next_u8_and_address!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} ",
-                    "jr".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_i8_address(buffer, offset)?;
-            }
-            Instruction::Jrc { condition } => {
-                let offset = next_u8_and_address!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {condition}, ",
-                    "jr".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_i8_address(buffer, offset)?;
-            }
-            Instruction::Jp => {
-                let lo = next_u8!();
-                let hi = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} ",
-                    "jp".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u16_address(buffer, lo, hi)?;
-            }
-            Instruction::Jpc { condition } => {
-                let lo = next_u8!();
-                let hi = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {condition}, ",
-                    "jp".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u16_address(buffer, lo, hi)?;
-            }
-            Instruction::JpReg16 { reg } => {
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {reg}",
-                    "jp".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-            }
-            Instruction::Call => {
-                let lo = next_u8!();
-                let hi = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} ",
-                    "call".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u16_address(buffer, lo, hi)?;
-            }
-            Instruction::Callc { condition } => {
-                let lo = next_u8!();
-                let hi = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {condition:02}, ",
-                    "call".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u16_address(buffer, lo, hi)?;
-            }
-            Instruction::AddImm8 => {
-                let value = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {acc}, ",
-                    "add".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u8(buffer, value)?;
-            }
-            Instruction::AdcImm8 => {
-                let value = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {acc}, ",
-                    "adc".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u8(buffer, value)?;
-            }
-            Instruction::SubImm8 => {
-                let value = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {acc}, ",
-                    "sub".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u8(buffer, value)?;
-            }
-            Instruction::SbcImm8 => {
-                let value = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {acc}, ",
-                    "sbc".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u8(buffer, value)?;
-            }
-            Instruction::AndImm8 => {
-                let value = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {acc}, ",
-                    "and".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u8(buffer, value)?;
-            }
-            Instruction::XorImm8 => {
-                let value = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {acc}, ",
-                    "xor".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u8(buffer, value)?;
-            }
-            Instruction::OrImm8 => {
-                let value = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {acc}, ",
-                    "or".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u8(buffer, value)?;
-            }
-            Instruction::CpImm8 => {
-                let value = next_u8!();
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{} {acc}, ",
-                    "cp".if_supports_color(Stream::Stdout, |text| text.style(INSTRUCTION_STYLE))
-                )?;
-                Self::format_u8(buffer, value)?;
-            }
-            _ => {
-                Self::write_bytes_prefix(buffer, &bytes)?;
-                write!(
-                    buffer,
-                    "{}",
-                    self.if_supports_color(Stream::Stdout, |text| text.fg::<Yellow>())
-                )?;
-            }
-        }
-        Ok(())
-    }
-
-    fn write_bytes_prefix(buffer: &mut String, bytes: &[u8]) -> Result<(), core::fmt::Error> {
-        for b in bytes.iter() {
-            write!(buffer, " ")?;
-            write!(buffer, "{b:02X}")?;
-        }
-        let leftover = (3usize).saturating_sub(bytes.len());
-        for _ in 0..leftover {
-            write!(buffer, " __")?;
-        }
-        write!(buffer, " ")?;
-        Ok(())
-    }
-
-    fn format_u8(buffer: &mut String, value: Option<u8>) -> Result<(), core::fmt::Error> {
-        if let Some(byte) = value {
-            write!(
-                buffer,
-                "{:#04X}",
-                byte.if_supports_color(Stream::Stdout, |text| text.style(IMMEDIATE_STYLE))
-            )
-        } else {
-            write!(buffer, "0x??")
-        }
-    }
-
-    fn format_i8(buffer: &mut String, value: Option<u8>) -> Result<(), core::fmt::Error> {
-        if let Some(byte) = value {
-            let value = byte as i8;
-            write!(
-                buffer,
-                "+{:#04X}",
-                value.if_supports_color(Stream::Stdout, |text| text.style(IMMEDIATE_STYLE))
-            )
-        } else {
-            write!(buffer, "??")
-        }
-    }
-
-    fn format_i8_address(
-        buffer: &mut String,
-        value: Option<(usize, u8)>,
-    ) -> Result<(), core::fmt::Error> {
-        if let Some((address, byte)) = value {
-            let base_pc = address.wrapping_sub(1);
-            let target = base_pc.saturating_add_signed((byte as i8) as isize);
-            write!(
-                buffer,
-                "{}{:04x}",
-                "$".if_supports_color(Stream::Stdout, |text| text.style(IMMEDIATE_STYLE)),
-                target.if_supports_color(Stream::Stdout, |text| text.style(IMMEDIATE_STYLE)),
-            )
-        } else {
-            write!(buffer, "??")
-        }
-    }
-
-    fn format_u16(
-        buffer: &mut String,
-        lo: Option<u8>,
-        hi: Option<u8>,
-    ) -> Result<(), core::fmt::Error> {
-        let value = match (lo, hi) {
-            (None, None) => "????".to_owned(),
-            (None, Some(hi)) => format!("{hi:02X}??"),
-            (Some(lo), None) => format!("??{lo:02X}"),
-            (Some(lo), Some(hi)) => {
-                let value = ((hi as u16) << 8) | (lo as u16);
-                format!("0x{value:04X}")
-            }
-        };
-
-        write!(
-            buffer,
-            "{}",
-            value.if_supports_color(Stream::Stdout, |text| text.style(IMMEDIATE_STYLE))
-        )
-    }
-
-    fn format_u16_address(
-        buffer: &mut String,
-        lo: Option<u8>,
-        hi: Option<u8>,
-    ) -> Result<(), core::fmt::Error> {
-        let value = match (lo, hi) {
-            (None, None) => "$????".to_owned(),
-            (None, Some(hi)) => format!("${hi:02x}??"),
-            (Some(lo), None) => format!("$??{lo:02x}"),
-            (Some(lo), Some(hi)) => {
-                let value = ((hi as u16) << 8) | (lo as u16);
-                format!("${value:04x}")
-            }
-        };
-
-        write!(
-            buffer,
-            "{}",
-            value.if_supports_color(Stream::Stdout, |text| text.style(ADDRESS_STYLE))
-        )
     }
 }
 
@@ -1587,6 +1011,20 @@ mod _opcode_macros {
     }
 }
 
+// Utilities.
+impl Instruction {
+    #[inline]
+    pub const fn is_nop(&self) -> bool {
+        matches!(self, Self::Nop)
+    }
+
+    #[inline]
+    pub const fn is_prefix(&self) -> bool {
+        matches!(self, Self::Prefix)
+    }
+}
+
+// Decoding.
 impl Instruction {
     pub const fn decode_no_prefix(value: u8) -> Instruction {
         match value {
@@ -2166,46 +1604,14 @@ impl Instruction {
             0xFF => prefix_bit_op!(SetReg8, reg A, pos Bit7),
         }
     }
-}
 
-pub fn disassemble(byte_stream: &[u8]) -> String {
-    let mut buffer = String::new();
-
-    let mut it = byte_stream.iter().copied().enumerate();
-
-    let mut is_prefix = false;
-    let mut first_nop = true;
-    loop {
-        let Some((address, byte)) = it.next() else {
-            break;
-        };
-        assert!(address < u16::MAX as usize + 1, "{address}");
-
-        let inst = if is_prefix {
-            Instruction::decode_prefix(byte)
+    /// Decode a u16 (prefix byte and opcode byte in that order) into an instruction.
+    pub const fn decode(value: u16) -> Instruction {
+        let [prefix, opcode] = value.to_be_bytes();
+        if prefix == 0xCB {
+            Self::decode_prefix(opcode)
         } else {
-            Instruction::decode_no_prefix(byte)
-        };
-
-        is_prefix = matches!(inst, Instruction::Prefix);
-        if is_prefix {
-            continue;
+            Self::decode_no_prefix(opcode)
         }
-
-        if matches!(inst, Instruction::Nop) {
-            if first_nop {
-                first_nop = false;
-            } else {
-                continue;
-            }
-        } else {
-            first_nop = true;
-        }
-
-        write!(buffer, "{address:#06X}: ").unwrap();
-        inst.format(&mut buffer, &mut it, byte).unwrap();
-        buffer.push('\n');
     }
-
-    buffer
 }

@@ -1,18 +1,30 @@
+use core::fmt;
+
 mod display;
 
+/// Represents all possible bit shifts for an 8-bit value.
 #[derive(Debug, Clone, Copy)]
 pub enum BitShift8 {
+    /// Shift by 0 bits.
     Bit0,
+    /// Shift by 1 bit.
     Bit1,
+    /// Shift by 2 bits.
     Bit2,
+    /// Shift by 3 bits.
     Bit3,
+    /// Shift by 4 bits.
     Bit4,
+    /// Shift by 5 bits.
     Bit5,
+    /// Shift by 6 bits.
     Bit6,
+    /// Shift by 7 bits.
     Bit7,
 }
 
 impl BitShift8 {
+    /// The amount of bits to shift.
     #[inline]
     pub const fn get_shift_amount(self) -> usize {
         match self {
@@ -28,27 +40,45 @@ impl BitShift8 {
     }
 }
 
+/// Represents all possible bit shifts for an 16-bit value.
 #[derive(Debug, Clone, Copy)]
 pub enum BitShift16 {
+    /// Shift by 0 bits.
     Bit00,
+    /// Shift by 1 bits.
     Bit01,
+    /// Shift by 2 bits.
     Bit02,
+    /// Shift by 3 bits.
     Bit03,
+    /// Shift by 4 bits.
     Bit04,
+    /// Shift by 5 bits.
     Bit05,
+    /// Shift by 6 bits.
     Bit06,
+    /// Shift by 7 bits.
     Bit07,
+    /// Shift by 8 bits.
     Bit08,
+    /// Shift by 9 bits.
     Bit09,
+    /// Shift by 10 bits.
     Bit10,
+    /// Shift by 11 bits.
     Bit11,
+    /// Shift by 12 bits.
     Bit12,
+    /// Shift by 13 bits.
     Bit13,
+    /// Shift by 14 bits.
     Bit14,
+    /// Shift by 15 bits.
     Bit15,
 }
 
 impl BitShift16 {
+    /// The amount of bits to shift.
     #[inline]
     pub const fn get_shift_amount(self) -> usize {
         match self {
@@ -72,33 +102,38 @@ impl BitShift16 {
     }
 }
 
+/// Represents an 8-bit value.
 #[repr(transparent)]
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
 pub struct HwReg8(pub u8);
 
-impl core::fmt::Debug for HwReg8 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for HwReg8 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:#04X}", self.0)
     }
 }
 
 impl HwReg8 {
+    /// Return whether a bit is set.
     #[inline]
     pub const fn bit(self, shift: BitShift8) -> bool {
         (self.0 & (1 << shift.get_shift_amount())) != 0
     }
 
+    /// Set a bit.
     #[inline]
     pub const fn set(&mut self, shift: BitShift8) {
         self.0 |= 1 << shift.get_shift_amount();
     }
 
+    /// Reset a bit.
     #[inline]
     pub const fn reset(&mut self, shift: BitShift8) {
         self.0 &= !(1 << shift.get_shift_amount());
     }
 }
 
+/// Represents an 16-bit value.
 #[repr(transparent)]
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
 pub struct HwReg16(pub u16);
@@ -110,21 +145,25 @@ impl core::fmt::Debug for HwReg16 {
 }
 
 impl HwReg16 {
+    /// Return whether a bit is set.
     #[inline]
     pub const fn bit(self, shift: BitShift16) -> bool {
         (self.0 & (1 << shift.get_shift_amount())) != 0
     }
 
+    /// Set a bit.
     #[inline]
     pub const fn set(&mut self, shift: BitShift16) {
         self.0 |= 1 << shift.get_shift_amount();
     }
 
+    /// Reset a bit.
     #[inline]
     pub const fn reset(&mut self, shift: BitShift16) {
         self.0 &= !(1 << shift.get_shift_amount());
     }
 
+    /// Return the upper byte.
     #[inline]
     pub const fn upper(self) -> u8 {
         self.0.to_be_bytes()[0]

@@ -1,8 +1,8 @@
+use crate::Cpu;
 use gamedon_opcode::Condition;
 
-use crate::Cpu;
-
 impl Cpu {
+    /// Evaluate `condition` and return the result.
     pub(crate) const fn evaluate_condition(&self, condition: Condition) -> bool {
         match condition {
             Condition::Z => self.registers.get_zero_flag(),

@@ -4,12 +4,15 @@ use gamedon_lexer::{
     WrapWithSpan, state::IdentState,
 };
 
-pub struct InitialState {
-    pub start: usize,
+/// The normal lexer state.
+pub(crate) struct NormalState {
+    /// The byte offset of the state.
+    pub(crate) start: usize,
 }
 
-impl InitialState {
-    pub fn execute(
+impl NormalState {
+    /// Execute the state given the source text and a source character.
+    pub(crate) fn execute(
         &self,
         text: &str,
         next_char: Option<SourceChar>,
@@ -29,7 +32,7 @@ impl InitialState {
 
         match c {
             '\t' | '\x0C' | '\r' | ' ' | '\n' => LexerStateTransition {
-                new_state: Some(State::Initial(InitialState {
+                new_state: Some(State::Normal(NormalState {
                     start: next_char.next_offset(),
                 })),
                 token_or_error: None,
@@ -60,12 +63,14 @@ impl InitialState {
         }
     }
 
+    /// Return the next lexer state assuming it is also the normal state.
     const fn next(next_char: &SourceChar) -> State {
-        State::Initial(Self {
+        State::Normal(Self {
             start: next_char.next_offset(),
         })
     }
 
+    /// Return the span from the start of the state with the given `length`.
     const fn span(&self, length: usize) -> Span {
         Span {
             start: self.start,
