@@ -4,6 +4,14 @@ use crate::{
 use core::default;
 use gamedon_bits::HwReg8;
 
+/// Addresses mapping to the serial registers.
+#[macro_export]
+macro_rules! serial_addresses {
+    () => {
+        0xFF01 | 0xFF02
+    };
+}
+
 /// The serial port state.
 #[derive(Debug, Clone)]
 enum State {

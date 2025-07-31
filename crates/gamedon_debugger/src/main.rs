@@ -109,8 +109,7 @@ fn step(cpu: &mut Cpu, bus: &mut MemoryBus, skip_breakpoints: bool) -> (Executio
     let mut should_pause = outcome.hit_breakpoint;
 
     if should_run {
-        bus.timer_tick();
-        bus.serial_tick();
+        bus.tick();
         bus.update_interrupt_requests();
         if let Some(output) = bus.has_new_serial_output() {
             let serial_string = String::from_utf8_lossy(output);

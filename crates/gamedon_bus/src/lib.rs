@@ -1,11 +1,14 @@
 use bank::MemoryBank;
 use cartridge::{CartridgeHeader, HeaderLoadError, RamSize, RomSize};
 use core::{default, fmt, iter};
+use dma::Dma;
 use interrupts::Interrupts;
+use lcd::Lcd;
 use mbc::{MbcCreationError, MemoryBankController, NoMbc, RomLoadError, TaggedMbc};
 use serial::Serial;
 use thiserror::Error;
 use timer::Timer;
+use vram::VideoRam;
 
 pub(crate) use bank::NameTag;
 pub use interrupts::Interrupt;
@@ -14,14 +17,41 @@ pub use interrupts::Interrupt;
 mod bank;
 /// The game cartridge.
 mod cartridge;
+/// The DMA transfer protocol.
+mod dma;
 /// The interrupt registers.
 mod interrupts;
+/// The LCD registers.
+mod lcd;
 /// The memory bank controller.
 mod mbc;
 /// The serial port.
 mod serial;
 /// The timer.
 mod timer;
+/// Video RAM
+mod vram;
+
+/// Addresses mapping to high RAM.
+macro_rules! hram_addresses {
+    () => {
+        0xFF80..=0xFFFE
+    };
+}
+
+/// Addresses mapping to working RAM.
+macro_rules! wram_addresses {
+    () => {
+        0xC000..=0xDFFF
+    };
+}
+
+/// Addresses mapping to echo RAM.
+macro_rules! echo_ram_addresses {
+    () => {
+        0xE000..=0xFDFF
+    };
+}
 
 /// Errors that can occur when reading a byte from the bus.
 #[derive(Debug, Error)]
@@ -86,15 +116,6 @@ impl NameTag for WorkingRam {
     }
 }
 
-/// Video RAM.
-#[derive(Debug, Clone)]
-struct VideoRam;
-impl NameTag for VideoRam {
-    fn name() -> &'static str {
-        "Video RAM"
-    }
-}
-
 /// High RAM.
 #[derive(Debug, Clone)]
 struct HighRam;
@@ -117,10 +138,14 @@ pub struct MemoryBus {
     working_ram: MemoryBank<0x2000, WorkingRam>,
     /// The serial port.
     serial: Serial,
-    /// The video RAM from $8000 to $9FFF.
-    vram: MemoryBank<0x2000, VideoRam>,
+    /// The video RAM from $8000 to $9FFF and OAM from $FE00-$FE97.
+    vram: VideoRam,
+    /// The LCD registers.
+    lcd: Lcd,
     /// The high RAM from $FF80 to $FFFE.
     hram: MemoryBank<0x007F, HighRam>,
+    /// DMA transfer at $FF46.
+    dma: Dma,
 }
 
 impl default::Default for MemoryBus {
@@ -133,8 +158,10 @@ impl default::Default for MemoryBus {
             timer: Timer::default(),
             working_ram: MemoryBank::default(),
             serial: Serial::default(),
-            vram: MemoryBank::default(),
+            vram: VideoRam::default(),
             hram: MemoryBank::default(),
+            lcd: Lcd::default(),
+            dma: Dma::default(),
         }
     }
 }
@@ -151,25 +178,42 @@ impl fmt::Debug for MemoryBus {
 impl BusReader for MemoryBus {
     #[inline]
     fn read_byte(&self, address: u16) -> Result<u8, ReadByteError> {
+        // If doing DMA transfer and address is not in high RAM address space.
+        if self.dma.is_active() && !matches!(address, hram_addresses!()) {
+            Ok(0xFF)
+        } else {
+            self.read_byte_unchecked(address)
+        }
+    }
+}
+
+impl BusWriter for MemoryBus {
+    #[inline]
+    fn write_byte(&mut self, address: u16, value: u8) -> Result<(), WriteByteError> {
+        if !self.dma.is_active() || matches!(address, hram_addresses!()) {
+            self.write_byte_unchecked(address, value)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl MemoryBus {
+    /// Read the byte at `address`.
+    /// This function does not restrict access during DMA transfer.
+    #[inline]
+    pub fn read_byte_unchecked(&self, address: u16) -> Result<u8, ReadByteError> {
         let value = match address {
-            // Interrupts
-            0xFF0F | 0xFFFF => self.interrupts.read_byte(address)?,
-            // Timer
-            0xFF04..=0xFF07 => self.timer.read_byte(address)?,
-            // Working RAM
-            0xC000..=0xDFFF => self.working_ram.read_byte::<0xC000>(address)?,
-            // Echo RAM
-            0xE000..=0xFDFF => self.read_byte(address - 0x2000)?,
-            // Serial
-            0xFF01 | 0xFF02 => self.serial.read_byte(address)?,
-            // HACK(pavyamsiri): Hard return 0x90 for now so I can debug with doctor
-            0xFF44 => 0x90,
-            // VRAM
-            0x8000..=0x9FFF => self.vram.read_byte::<0x8000>(address)?,
-            // MBC
-            0x0000..=0xBFFF => self.mbc.read_byte(address)?,
-            // High RAM
-            0xFF80..=0xFFFE => self.hram.read_byte::<0xFF80>(address)?,
+            interrupt_addresses!() => self.interrupts.read_byte(address)?,
+            timer_addresses!() => self.timer.read_byte(address)?,
+            serial_addresses!() => self.serial.read_byte(address)?,
+            lcd_addresses!() => self.lcd.read_byte(address)?,
+            vram_addresses!() => self.vram.read_byte(address)?,
+            mbc_addresses!() => self.mbc.read_byte(address)?,
+            hram_addresses!() => self.hram.read_byte::<0xFF80>(address)?,
+            wram_addresses!() => self.working_ram.read_byte::<0xC000>(address)?,
+            echo_ram_addresses!() => self.read_byte(address - 0x2000)?,
+            dma_addresses!() => self.dma.read_byte(address)?,
             _ => {
                 tracing::trace!(address = address, "Missing read implementation for address");
                 0xFF
@@ -183,42 +227,32 @@ impl BusReader for MemoryBus {
         );
         Ok(value)
     }
-}
 
-impl BusWriter for MemoryBus {
+    /// Write the `value` to the `address` in the memory bus.
+    /// This function does not restrict access during DMA transfer.
     #[inline]
-    fn write_byte(&mut self, address: u16, value: u8) -> Result<(), WriteByteError> {
+    pub fn write_byte_unchecked(&mut self, address: u16, value: u8) -> Result<(), WriteByteError> {
         tracing::trace!(
             address = address,
             value = value,
             "Writing {value:#04X} to {address:#06X}"
         );
         match address {
-            // Interrupts
-            0xFF0F | 0xFFFF => self.interrupts.write_byte(address, value),
-            // Timer
-            0xFF04..=0xFF07 => self.timer.write_byte(address, value),
-            // Working RAM
-            0xC000..=0xDFFF => self.working_ram.write_byte::<0xC000>(address, value),
-            // Echo RAM
-            0xE000..=0xFDFF => self.write_byte(address - 0x2000, value),
-            // Serial
-            0xFF01 | 0xFF02 => self.serial.write_byte(address, value),
-            // VRAM
-            0x8000..=0x9FFF => self.vram.write_byte::<0x8000>(address, value),
-            // MBC
-            0x0000..=0xBFFF => self.mbc.write_byte(address, value),
-            // High RAM
-            0xFF80..=0xFFFE => self.hram.write_byte::<0xFF80>(address, value),
+            interrupt_addresses!() => self.interrupts.write_byte(address, value),
+            timer_addresses!() => self.timer.write_byte(address, value),
+            serial_addresses!() => self.serial.write_byte(address, value),
+            vram_addresses!() => self.vram.write_byte(address, value),
+            mbc_addresses!() => self.mbc.write_byte(address, value),
+            hram_addresses!() => self.hram.write_byte::<0xFF80>(address, value),
+            wram_addresses!() => self.working_ram.write_byte::<0xC000>(address, value),
+            echo_ram_addresses!() => self.write_byte(address - 0x2000, value),
             _ => {
                 tracing::trace!(address = address, "Missing read implementation for address");
                 Ok(())
             }
         }
     }
-}
 
-impl MemoryBus {
     /// Load the `rom` represented as a slice of bytes.
     #[inline]
     pub fn load_rom(rom: &[u8]) -> Result<Self, CartridgeLoadError> {
@@ -234,8 +268,10 @@ impl MemoryBus {
             timer: Timer::default(),
             working_ram: MemoryBank::default(),
             serial: Serial::default(),
-            vram: MemoryBank::default(),
+            vram: VideoRam::default(),
             hram: MemoryBank::default(),
+            lcd: Lcd::default(),
+            dma: Dma::default(),
         })
     }
 
@@ -297,13 +333,33 @@ impl MemoryBus {
 
 // Peripherals
 impl MemoryBus {
+    /// Update the bus and its peripherals by one M-cycle.
+    #[inline]
+    pub fn tick(&mut self) {
+        // DMA
+        if let Some(req) = self.dma.tick() {
+            // Starting address of DMA transfer is $XX00 where XX is the byte written to $FF46.
+            let offset = req.dst;
+            let src = u16::from_be_bytes([req.src, offset]);
+            let value = self
+                .read_byte_unchecked(src)
+                .expect("The src should always be a valid address.");
+            self.vram
+                .write_to_oam(offset, value)
+                .expect("The dst should always be a valid OAM address.");
+        }
+
+        self.serial_tick();
+        self.timer_tick();
+    }
+
     /// Update the timer by one M-cycle.
-    pub fn timer_tick(&mut self) {
+    fn timer_tick(&mut self) {
         self.timer.tick();
     }
 
     /// Update the serial port by one M-cycle.
-    pub fn serial_tick(&mut self) {
+    fn serial_tick(&mut self) {
         self.serial.tick();
     }
 

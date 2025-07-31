@@ -8,6 +8,14 @@ mod mbc1;
 /// Implementation of ROM only cartridges.
 mod nombc;
 
+/// Addresses mapping to the MBC.
+#[macro_export]
+macro_rules! mbc_addresses {
+    () => {
+        0x0000..=0xBFFF
+    };
+}
+
 /// Errors that can occur when loading a ROM.
 #[derive(Error, Debug)]
 pub enum RomLoadError {

@@ -1,6 +1,14 @@
 use crate::{BusReader, BusWriter, ReadByteError, WriteByteError};
 use gamedon_bits::{BitShift8, HwReg8};
 
+/// Addresses mapping to the interrupt registers.
+#[macro_export]
+macro_rules! interrupt_addresses {
+    () => {
+        0xFF0F | 0xFFFF
+    };
+}
+
 /// The bit representing `VBlank` interrupts.
 const INTERRUPT_VBLANK: BitShift8 = BitShift8::Bit0;
 /// The bit representing LCD interrupts.

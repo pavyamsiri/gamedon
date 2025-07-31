@@ -4,6 +4,14 @@ use crate::{
 use core::default;
 use gamedon_bits::{BitShift8, BitShift16, HwReg8, HwReg16};
 
+/// Addresses mapping to the timer registers.
+#[macro_export]
+macro_rules! timer_addresses {
+    () => {
+        0xFF04..=0xFF07
+    };
+}
+
 /// The timer state.
 #[derive(Debug, Clone, Default)]
 enum State {
