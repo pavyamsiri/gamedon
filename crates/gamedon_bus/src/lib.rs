@@ -12,6 +12,7 @@ use vram::VideoRam;
 
 pub(crate) use bank::NameTag;
 pub use interrupts::Interrupt;
+pub use lcd::PpuState;
 
 /// Memory banks or RAM areas.
 mod bank;
@@ -175,12 +176,73 @@ impl fmt::Debug for MemoryBus {
     }
 }
 
+impl<'a> iter::IntoIterator for &'a MemoryBus {
+    type Item = (u16, u8);
+    type IntoIter = MemoryBusIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Self::IntoIter {
+            bus: self,
+            address: Some(0),
+        }
+    }
+}
+
+/// An iterator over the bytes of the memory bus.
+#[derive(Debug, Clone)]
+pub struct MemoryBusIterator<'a> {
+    /// The memory bus.
+    bus: &'a MemoryBus,
+    /// The current address.
+    address: Option<u16>,
+}
+
+impl iter::Iterator for MemoryBusIterator<'_> {
+    type Item = (u16, u8);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.address {
+            Some(address) => {
+                self.address = address.checked_add(1);
+                Some((address, self.bus.read_byte(address).unwrap_or(0x00)))
+            }
+            None => None,
+        }
+    }
+}
+
 impl BusReader for MemoryBus {
     #[inline]
     fn read_byte(&self, address: u16) -> Result<u8, ReadByteError> {
         // If doing DMA transfer and address is not in high RAM address space.
         if self.dma.is_active() && !matches!(address, hram_addresses!()) {
+            tracing::trace!(
+                address = address,
+                "GAME BUG?: Reading from non high RAM addresses during DMA."
+            );
             Ok(0xFF)
+        }
+        // When the PPU is drawing pixels.
+        else if self.is_lcd_enabled()
+            && matches!(self.get_lcd_mode(), PpuState::HDraw)
+            && matches!(address, vram_addresses!())
+        {
+            tracing::trace!(
+                address = address,
+                "GAME BUG?: Reading from VRAM while drawing."
+            );
+            Ok(0xFE)
+        }
+        // When the PPU is scanning OAM.
+        else if self.is_lcd_enabled()
+            && matches!(self.get_lcd_mode(), PpuState::OamScan)
+            && matches!(address, oam_addresses!())
+        {
+            tracing::trace!(
+                address = address,
+                "GAME BUG?: Reading from OAM while scanning PPU is scanning OAM."
+            );
+            Ok(0xFD)
         } else {
             self.read_byte_unchecked(address)
         }
@@ -190,10 +252,39 @@ impl BusReader for MemoryBus {
 impl BusWriter for MemoryBus {
     #[inline]
     fn write_byte(&mut self, address: u16, value: u8) -> Result<(), WriteByteError> {
-        if !self.dma.is_active() || matches!(address, hram_addresses!()) {
-            self.write_byte_unchecked(address, value)
-        } else {
+        // If doing DMA transfer and address is not in high RAM address space.
+        if self.dma.is_active() && !matches!(address, hram_addresses!()) {
+            tracing::trace!(
+                address = address,
+                value = value,
+                "GAME BUG?: Writing to non high RAM addresses during DMA."
+            );
             Ok(())
+        }
+        // When the PPU is drawing pixels.
+        else if self.is_lcd_enabled()
+            && matches!(self.get_lcd_mode(), PpuState::HDraw)
+            && matches!(address, vram_addresses!())
+        {
+            tracing::trace!(
+                address = address,
+                value = value,
+                "GAME BUG?: Writing to VRAM while drawing."
+            );
+            Ok(())
+        // When the PPU is drawing pixels.
+        } else if self.is_lcd_enabled()
+            && matches!(self.get_lcd_mode(), PpuState::OamScan)
+            && matches!(address, oam_addresses!())
+        {
+            tracing::trace!(
+                address = address,
+                value = value,
+                "GAME BUG?: Writing to OAM while scanning PPU is scanning OAM."
+            );
+            Ok(())
+        } else {
+            self.write_byte_unchecked(address, value)
         }
     }
 }
@@ -375,37 +466,53 @@ impl MemoryBus {
     }
 }
 
-impl<'a> iter::IntoIterator for &'a MemoryBus {
-    type Item = (u16, u8);
-    type IntoIter = MemoryBusIterator<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        Self::IntoIter {
-            bus: self,
-            address: Some(0),
-        }
+// PPU
+impl MemoryBus {
+    /// Return the LCD/PPU mode.
+    #[inline]
+    pub fn get_lcd_mode(&self) -> PpuState {
+        self.lcd.get_lcd_mode()
     }
-}
 
-/// An iterator over the bytes of the memory bus.
-#[derive(Debug, Clone)]
-pub struct MemoryBusIterator<'a> {
-    /// The memory bus.
-    bus: &'a MemoryBus,
-    /// The current address.
-    address: Option<u16>,
-}
+    /// Set the LCD/PPU mode.
+    #[inline]
+    pub const fn set_lcd_mode(&mut self, mode: PpuState) {
+        self.lcd.set_lcd_mode(mode);
+    }
 
-impl iter::Iterator for MemoryBusIterator<'_> {
-    type Item = (u16, u8);
+    /// Whether the LCD/PPU is enabled.
+    #[inline]
+    pub const fn is_lcd_enabled(&self) -> bool {
+        self.lcd.is_lcd_enabled()
+    }
 
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.address {
-            Some(address) => {
-                self.address = address.checked_add(1);
-                Some((address, self.bus.read_byte(address).unwrap_or(0x00)))
-            }
-            None => None,
-        }
+    /// Return the scanline index.
+    #[inline]
+    pub const fn get_scanline(&self) -> u8 {
+        self.lcd.get_scanline()
+    }
+
+    /// Increment the scanline index.
+    #[inline]
+    pub const fn increment_scanline(&mut self) {
+        self.lcd.increment_scanline();
+    }
+
+    /// Return the x coordindate of the viewport's top left pixel.
+    #[inline]
+    pub const fn get_viewport_x(&self) -> u8 {
+        self.lcd.get_viewport_x()
+    }
+
+    /// Return the y coordindate of the viewport's top left pixel.
+    #[inline]
+    pub const fn get_viewport_y(&self) -> u8 {
+        self.lcd.get_viewport_y()
+    }
+
+    /// Whether the background and window are enabled.
+    #[inline]
+    pub const fn get_background_and_window_enable(&self) -> bool {
+        self.lcd.get_background_and_window_enable()
     }
 }

@@ -1,10 +1,18 @@
 use crate::{BusReader, BusWriter, MemoryBank, NameTag, ReadByteError, WriteByteError};
 
+/// Addresses mapping to OAM.
+#[macro_export]
+macro_rules! oam_addresses {
+    () => {
+        0xFE00..=0xFE97
+    };
+}
+
 /// Addresses mapping to the VRAM.
 #[macro_export]
 macro_rules! vram_addresses {
     () => {
-        0x8000..=0x9FFF | 0xFE00..=0xFE97
+        0x8000..=0x9FFF | oam_addresses!()
     };
 }
 
@@ -49,7 +57,7 @@ impl BusReader for VideoRam {
         match address {
             0x8000..=0x97FF => self.tiles.read_byte::<0x8000>(address),
             0x9800..=0x9FFF => self.tile_maps.read_byte::<0x9800>(address),
-            0xFE00..=0xFE9F => self.oam.read_byte::<0xFE00>(address),
+            oam_addresses!() => self.oam.read_byte::<0xFE00>(address),
             _ => Err(ReadByteError::InvalidAddressForPeripheral {
                 name: "Video RAM",
                 address,
@@ -63,7 +71,7 @@ impl BusWriter for VideoRam {
         match address {
             0x8000..=0x97FF => self.tiles.write_byte::<0x8000>(address, value),
             0x9800..=0x9FFF => self.tile_maps.write_byte::<0x9800>(address, value),
-            0xFE00..=0xFE9F => self.oam.write_byte::<0xFE00>(address, value),
+            oam_addresses!() => self.oam.write_byte::<0xFE00>(address, value),
             _ => Err(WriteByteError::InvalidAddressForPeripheral {
                 name: "Video RAM",
                 address,

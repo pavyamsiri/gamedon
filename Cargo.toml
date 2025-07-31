@@ -1,5 +1,5 @@
 [workspace]
-members = [ "crates/gamedon_bits", "crates/gamedon_bus", "crates/gamedon_cpu", "crates/gamedon_debugger", "crates/gamedon_disassembler", "crates/gamedon_file", "crates/gamedon_lexer", "crates/gamedon_opcode"]
+members = [ "crates/gamedon_bits", "crates/gamedon_bus", "crates/gamedon_cpu", "crates/gamedon_debugger", "crates/gamedon_disassembler", "crates/gamedon_file", "crates/gamedon_lexer", "crates/gamedon_opcode", "crates/gamedon_ppu"]
 resolver = "2"
 
 [workspace.dependencies]

@@ -1,6 +1,9 @@
 use core::fmt;
 
+pub use latch::FlagLatch;
+
 mod display;
+mod latch;
 
 /// Represents all possible bit shifts for an 8-bit value.
 #[derive(Debug, Clone, Copy)]
@@ -130,6 +133,16 @@ impl HwReg8 {
     #[inline]
     pub const fn reset(&mut self, shift: BitShift8) {
         self.0 &= !(1 << shift.get_shift_amount());
+    }
+
+    /// Set a bit to a boolean value.
+    #[inline]
+    pub const fn set_value(&mut self, shift: BitShift8, value: bool) {
+        if value {
+            self.set(shift);
+        } else {
+            self.reset(shift);
+        }
     }
 }
 
