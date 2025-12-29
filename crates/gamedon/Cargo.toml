@@ -1,0 +1,16 @@
+[package]
+name = "gamedon"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+color-eyre = { workspace = true }
+pollster = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+winit = { workspace = true }
+
+gamedon_graphics = { workspace = true }
+
+[lints]
+workspace = true

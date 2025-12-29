@@ -1,0 +1,15 @@
+[package]
+name = "gamedon_graphics"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+color-eyre = { workspace = true }
+tracing = { workspace = true }
+wgpu = { workspace = true }
+winit = { workspace = true }
+zerocopy = { workspace = true }
+zerocopy-derive = { workspace = true }
+
+[lints]
+workspace = true
