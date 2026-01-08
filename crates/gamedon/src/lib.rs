@@ -64,7 +64,7 @@ impl ApplicationHandler<GraphicsState> for App {
                 }
 
                 self.timer = std::time::Instant::now();
-                tracing::debug!("Frame time = {}ms", frame_duration.as_millis());
+                tracing::trace!("Frame time = {}ms", frame_duration.as_millis());
 
                 self.counter += 1;
                 let data = if (self.counter / 600).is_multiple_of(2) {
@@ -97,6 +97,7 @@ impl ApplicationHandler<GraphicsState> for App {
                     })
                 };
                 state.update_framebuffer(data, 16, 16);
+                state.update_text(&format!("Frame time: {}ms", frame_duration.as_micros()));
                 match state.render() {
                     Ok(()) => {}
                     Err(SurfaceError::SurfaceNeedsRecreation) => {

@@ -59,6 +59,14 @@ pub struct GraphicsState {
     render_pipeline: wgpu::RenderPipeline,
     /// The render texture.
     diffuse_texture: TextureHandle,
+
+    font_system: glyphon::FontSystem,
+    swash_cache: glyphon::SwashCache,
+    viewport: glyphon::Viewport,
+    atlas: glyphon::TextAtlas,
+    text_renderer: glyphon::TextRenderer,
+    text_buffer: glyphon::Buffer,
+
     /// The window.
     pub window: Arc<window::Window>,
 }
@@ -209,6 +217,41 @@ impl GraphicsState {
             multiview_mask: None,
         });
 
+        // Set up text renderer
+        let mut font_system = glyphon::FontSystem::new_with_fonts(iter::once(
+            glyphon::fontdb::Source::Binary(Arc::new(include_bytes!("fonts/boldpixels.ttf"))),
+        ));
+        let swash_cache = glyphon::SwashCache::new();
+        let cache = glyphon::Cache::new(&device);
+        let viewport = glyphon::Viewport::new(&device, &cache);
+        let mut atlas = glyphon::TextAtlas::new(&device, &queue, &cache, surface_format);
+        let text_renderer = glyphon::TextRenderer::new(
+            &mut atlas,
+            &device,
+            wgpu::MultisampleState::default(),
+            None,
+        );
+        let mut text_buffer =
+            glyphon::Buffer::new(&mut font_system, glyphon::Metrics::new(30.0, 42.0));
+        let scale_factor: f64 = 1.0;
+
+        let physical_width = (f64::from(size.width) * scale_factor) as f32;
+        let physical_height = (f64::from(size.height) * scale_factor) as f32;
+
+        text_buffer.set_size(
+            &mut font_system,
+            Some(physical_width),
+            Some(physical_height),
+        );
+        text_buffer.set_text(
+            &mut font_system,
+            "NOT SET",
+            &glyphon::Attrs::new().family(glyphon::Family::Name("BoldPixels")),
+            glyphon::Shaping::Basic,
+            None,
+        );
+        text_buffer.shape_until_scroll(&mut font_system, false);
+
         Ok(Self {
             window,
             surface,
@@ -223,6 +266,12 @@ impl GraphicsState {
                 .expect("number of vertices will never exceed u32."),
             diffuse_bind_group,
             diffuse_texture,
+            font_system,
+            swash_cache,
+            viewport,
+            atlas,
+            text_renderer,
+            text_buffer,
         })
     }
 
@@ -241,6 +290,22 @@ impl GraphicsState {
         if let (KeyCode::Escape, true) = (code, is_pressed) {
             event_loop.exit();
         }
+    }
+
+    /// Update text.
+    pub fn update_text(&mut self, text: &str) {
+        self.text_buffer.set_text(
+            &mut self.font_system,
+            text,
+            &glyphon::Attrs::new()
+                .family(glyphon::Family::Name("BoldPixels"))
+                .weight(glyphon::Weight(700))
+                .color(glyphon::Color::rgb(255, 120, 0)),
+            glyphon::Shaping::Basic,
+            None,
+        );
+        self.text_buffer
+            .shape_until_scroll(&mut self.font_system, false);
     }
 
     /// Update the frame buffer.
@@ -274,6 +339,39 @@ impl GraphicsState {
         if !self.is_surface_configured {
             return Ok(());
         }
+
+        self.viewport.update(
+            &self.queue,
+            glyphon::Resolution {
+                width: self.config.width,
+                height: self.config.height,
+            },
+        );
+
+        self.text_renderer
+            .prepare(
+                &self.device,
+                &self.queue,
+                &mut self.font_system,
+                &mut self.atlas,
+                &self.viewport,
+                [glyphon::TextArea {
+                    buffer: &self.text_buffer,
+                    left: 10.0,
+                    top: 10.0,
+                    scale: 1.0,
+                    bounds: glyphon::TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: 600,
+                        bottom: 160,
+                    },
+                    default_color: glyphon::Color::rgb(255, 255, 255),
+                    custom_glyphs: &[],
+                }],
+                &mut self.swash_cache,
+            )
+            .unwrap();
 
         let output = self.surface.get_current_texture()?;
         let view = output
@@ -313,10 +411,15 @@ impl GraphicsState {
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+
+            self.text_renderer
+                .render(&self.atlas, &self.viewport, &mut render_pass)
+                .unwrap();
         }
 
         self.queue.submit(iter::once(encoder.finish()));
         output.present();
+        self.atlas.trim();
 
         Ok(())
     }
