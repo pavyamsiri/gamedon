@@ -169,7 +169,7 @@ impl GraphicsState {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("gamedon_render_pipeline_layout"),
                 bind_group_layouts: &[&texture_bind_group_layout],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("gamedon_render_pipeline"),
@@ -205,8 +205,8 @@ impl GraphicsState {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
             cache: None,
+            multiview_mask: None,
         });
 
         Ok(Self {
@@ -306,6 +306,7 @@ impl GraphicsState {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
